@@ -237,7 +237,12 @@ function normalizeValue(level, dev, value) {
     case 'range5': return int(SLIDER_MAX);
     case 'step10': return int(STEP_MAX);
     case 'dir4': return DIR4.includes(value) ? value : null;
-    case 'dir8': return DIR8.includes(value) ? value : null;
+    // 高難度可以回報「按住保持航向」：hold:方位
+    case 'dir8': {
+      const v = String(value || '');
+      const d = v.startsWith('hold:') ? v.slice(5) : v;
+      return DIR8.includes(d) ? v : null;
+    }
     case 'options': return int(dev.options.length - 1);
     default: return null;
   }
@@ -275,6 +280,8 @@ function buildInstruction(level, dev, current) {
     case 'dir4':
     case 'dir8': {
       const t = pickOther(level === 'hard' ? DIR8 : DIR4);
+      // 高難度約三分之一是「按住保持航向」：要撐住 1.5 秒
+      if (level === 'hard' && Math.random() < 0.35) return { target: `hold:${t}`, text: `按住${dev.name}，保持在${DIR_NAME[t]}！` };
       return { target: t, text: `把${dev.name}轉到${DIR_NAME[t]}！` };
     }
     case 'options': {
@@ -692,6 +699,13 @@ function onInstructionTimeout(room, playerId, instruction) {
   if (room.state === 'playing') later(room, () => issueInstruction(room, player.id), CONFIG.NEXT_INSTRUCTION_DELAY_MS);
 }
 
+/** 目標比對：要求「保持」就必須是 hold；一般轉向則按住保持也算 */
+function targetMatches(target, value) {
+  if (typeof target === 'string' && target.startsWith('hold:')) return value === target;
+  if (typeof value === 'string' && value.startsWith('hold:')) return value.slice(5) === target;
+  return value === target;
+}
+
 /** 指令驗證 */
 function handleOperate(room, operator, deviceId, rawValue) {
   const dev = room.devMap.get(deviceId);
@@ -699,7 +713,7 @@ function handleOperate(room, operator, deviceId, rawValue) {
 
   const value = normalizeValue(room.difficulty, dev, rawValue);
   if (value === null) return;
-  if (dev.type !== 'button') room.deviceState.set(deviceId, value);
+  if (dev.type !== 'button') room.deviceState.set(deviceId, typeof value === 'string' && value.startsWith('hold:') ? value.slice(5) : value);
 
   // 找出正在要求這個機關的玩家
   let requester = null;
@@ -710,7 +724,7 @@ function handleOperate(room, operator, deviceId, rawValue) {
     }
   }
 
-  if (requester && value === requester.instruction.target) {
+  if (requester && targetMatches(requester.instruction.target, value)) {
     // ✅ 正確
     const reactMs = Date.now() - requester.instruction.issuedAt;
     cancel(room, requester.instruction.timer);

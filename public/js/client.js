@@ -363,10 +363,11 @@
       case 'dir4':
       case 'dir8': {
         const dirs = d.mode === 'dir8' ? DIR8 : DIRS;
-        return `<div class="compass ${d.mode}" role="slider" aria-label="${label}">
+        return `<div class="compass-wrap"><div class="compass ${d.mode}" role="slider" aria-label="${label}">
+                  <span class="hold-ring"></span>
                   ${dirs.map((k) => `<b data-d="${k}">${DIR_NAME[k]}</b>`).join('')}
                   <span class="needle"></span><span class="hub"></span>
-                </div>`;
+                </div><span class="compass-tip">${d.mode === 'dir8' ? '滑一下・按住保持' : '往方向滑一下'}</span></div>`;
       }
       case 'options':
         return `<div class="selector" aria-label="${label}">
@@ -520,44 +521,90 @@
     btn.addEventListener('pointercancel', up);
   }
 
-  // 指北針：拖曳指針轉方向（放開時吸附到最近的方位），輕點則順時針轉一格
+  // 指北針：往哪個方向「滑一下」就指向哪裡（中難度 4 方位、高難度 8 方位）
+  // 高難度另外可以「按住拖曳」：指針會被洋流推著晃，要撐在同一個方向 1.5 秒
+  let compassTipAt = 0;
   function bindCompass(entry, dirs) {
     const dial = entry.el.querySelector('.compass');
-    const stepDeg = 360 / dirs.length;
-    let drag = null;
-    const angleAt = (e) => {
-      const r = dial.getBoundingClientRect();
-      const dx = e.clientX - (r.left + r.width / 2);
-      const dy = e.clientY - (r.top + r.height / 2);
-      return (Math.atan2(dx, -dy) * 180) / Math.PI; // 0 = 北，90 = 東
+    const n = dirs.length;
+    const step = 360 / n;
+    const hard = n === 8;
+    const HOLD_MS = 1500;
+    let g = null;
+    let raf = 0;
+    const angleOf = (dx, dy) => (Math.atan2(dx, -dy) * 180) / Math.PI; // 0 = 北，90 = 東
+    const snap = (deg) => dirs[((Math.round(deg / step) % n) + n) % n];
+    const wobble = (t) => (hard ? 18 * Math.sin(t * 1.9) + 9 * Math.sin(t * 3.3 + 1) : 0); // 洋流推力
+    const showDir = (d) => dial.querySelectorAll('b').forEach((b) => b.classList.toggle('on', b.dataset.d === d));
+    const setRing = (p) => { dial.style.setProperty('--hp', p); dial.classList.toggle('holding', p > 0); };
+
+    const tick = () => {
+      if (!g) return;
+      const now = performance.now();
+      if (g.moved && now - g.t0 > 260) {
+        g.long = true;
+        const r = dial.getBoundingClientRect();
+        const needle = angleOf(g.x - (r.left + r.width / 2), g.y - (r.top + r.height / 2)) + wobble(now / 1000);
+        g.needle = needle;
+        entry.angle = nearestEquivalent(entry.angle, needle);
+        dial.classList.add('dragging');
+        dial.style.setProperty('--deg', `${entry.angle}deg`);
+        const d = snap(needle);
+        showDir(d);
+        if (hard) {
+          if (d !== g.holdDir) { g.holdDir = d; g.holdSince = now; }
+          const p = Math.min(1, (now - g.holdSince) / HOLD_MS);
+          setRing(p);
+          if (p >= 1 && g.heldDir !== d) {
+            g.heldDir = d;
+            entry.data.value = d;
+            sfx.helped();
+            if (navigator.vibrate) navigator.vibrate(50);
+            operate(entry.data.id, `hold:${d}`);
+          }
+        }
+      }
+      raf = requestAnimationFrame(tick);
     };
+
     dial.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       dial.setPointerCapture(e.pointerId);
-      drag = { x: e.clientX, y: e.clientY, moved: false };
+      g = { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, t0: performance.now(), moved: false, long: false, holdDir: null, holdSince: 0, heldDir: null, needle: 0 };
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(tick);
     });
-    dial.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
-    dial.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
     dial.addEventListener('pointermove', (e) => {
-      if (!drag) return;
-      if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 8) drag.moved = true;
-      if (!drag.moved) return;
-      dial.classList.add('dragging');
-      entry.angle = nearestEquivalent(entry.angle, angleAt(e));
-      dial.style.setProperty('--deg', `${entry.angle}deg`);
+      if (!g) return;
+      g.x = e.clientX;
+      g.y = e.clientY;
+      if (Math.hypot(g.x - g.x0, g.y - g.y0) > 10) g.moved = true;
     });
-    dial.addEventListener('pointerup', (e) => {
-      if (!drag) return;
-      const wasDrag = drag.moved;
-      drag = null;
+    const end = (e, cancelled) => {
+      if (!g) return;
+      cancelAnimationFrame(raf);
+      const gg = g;
+      g = null;
       dial.classList.remove('dragging');
+      setRing(0);
+      if (cancelled) { setDeviceValue(entry.data.id, entry.data.value); return; }
+      const dx = e.clientX - gg.x0;
+      const dy = e.clientY - gg.y0;
+      let next = null;
+      if (Math.hypot(dx, dy) >= 18) next = gg.long ? snap(gg.needle) : snap(angleOf(dx, dy));
+      if (!next) {
+        // 只是點一下：提醒要用滑的
+        retrigger(dial, 'nudge');
+        if (Date.now() - compassTipAt > 4000) { compassTipAt = Date.now(); toast(hard ? '🧭 往方向滑一下；要「保持」就按住拖著撐 1.5 秒' : '🧭 往你要的方向滑一下！'); }
+        setDeviceValue(entry.data.id, entry.data.value);
+        return;
+      }
       const before = entry.data.value;
-      const n = dirs.length;
-      const next = wasDrag ? dirs[((Math.round(angleAt(e) / stepDeg) % n) + n) % n] : dirs[(dirs.indexOf(before) + 1) % n];
       setDeviceValue(entry.data.id, next);
-      if (next !== before) { sfx.click(); operate(entry.data.id, next); }
-    });
-    dial.addEventListener('pointercancel', () => { drag = null; dial.classList.remove('dragging'); setDeviceValue(entry.data.id, entry.data.value); });
+      if (next !== before && gg.heldDir !== next) { sfx.click(); operate(entry.data.id, next); }
+    };
+    dial.addEventListener('pointerup', (e) => end(e, false));
+    dial.addEventListener('pointercancel', (e) => end(e, true));
   }
 
   // 找與 current 最接近、和 target 同方向的角度，避免指針繞遠路轉一大圈
@@ -641,7 +688,8 @@
       .replace(/「(.+?)」/, '「<span class="act">$1</span>」')
       .replace(/調到 (\d+)！/, '調到 <span class="act">$1</span>！')
       .replace(/(關掉|調到半開|全開)！$/, '<span class="act">$1</span>！')
-      .replace(/(連按三下|長按)/, '<span class="act">$1</span>')
+      .replace(/(連按三下|長按|按住)/, '<span class="act">$1</span>')
+      .replace(/保持在(東北|東南|西北|西南|北|東|南|西)！/, '保持在<span class="act">$1</span>！')
       .replace(/(兩秒)！$/, '<span class="act">$1</span>！');
   }
 
@@ -850,11 +898,17 @@
       if (old) old.remove();
       const hint = document.createElement('span');
       hint.className = 'hint';
-      hint.textContent = dv.data.type === 'button' ? '按法不對！' : '還沒到位！';
+      hint.textContent = hintText(dv);
       dv.el.appendChild(hint);
       setTimeout(() => hint.remove(), 1500);
     }
   });
+
+  function hintText(dv) {
+    if (dv.data.type === 'button') return '按法不對！';
+    if (dv.data.type === 'compass') return dv.data.mode === 'dir8' ? '方向不對？還是要按住撐住？' : '方向不對！';
+    return '還沒到位！';
+  }
 
   socket.on('device:state', ({ deviceId, value }) => setDeviceValue(deviceId, value));
 
@@ -1017,10 +1071,19 @@
       case 'threeWay': { const t = other([0, 1, 2]); return { target: t, text: `把${d.name}${TRI_NAME[t]}！`, key: ['關', '半', '全'][t] }; }
       case 'step10': { const t = other([...Array(11).keys()]); return { target: t, text: `把${d.name}調到 ${t}！`, key: String(t) }; }
       case 'dir4':
-      case 'dir8': { const t = other(level === 'hard' ? DIR8 : DIRS); return { target: t, text: `把${d.name}轉到${DIR_NAME[t]}！`, key: DIR_NAME[t] }; }
+      case 'dir8': {
+        const t = other(level === 'hard' ? DIR8 : DIRS);
+        if (level === 'hard' && Math.random() < 0.35) return { target: `hold:${t}`, text: `按住${d.name}，保持在${DIR_NAME[t]}！`, key: DIR_NAME[t] };
+        return { target: t, text: `把${d.name}轉到${DIR_NAME[t]}！`, key: DIR_NAME[t] };
+      }
       case 'options': { const t = other([...d.options.keys()]); return { target: t, text: `把${d.name}轉到「${d.options[t]}」！`, key: d.options[t] }; }
       default: return { target: 'press', text: d.instruction, key: '' };
     }
+  }
+  function targetMatches(target, value) {
+    if (typeof target === 'string' && target.startsWith('hold:')) return value === target;
+    if (typeof value === 'string' && value.startsWith('hold:')) return value.slice(5) === target;
+    return value === target;
   }
   function mixTypes(list) {
     const buckets = Object.values(list.reduce((a, d) => ((a[d.type] = a[d.type] || []).push(d), a), {}))
@@ -1318,7 +1381,7 @@
     if (!SOLO.running) return;
     const dv = devices.get(id);
     const o = SOLO.orders.find((x) => !x.relay && x.deviceId === id);
-    if (o && value === o.target) {
+    if (o && targetMatches(o.target, value)) {
       retrigger(dv.el, 'ok');
       sfx.helped();
       soloSuccess(o);
@@ -1333,7 +1396,7 @@
       if (old) old.remove();
       const hint = document.createElement('span');
       hint.className = 'hint';
-      hint.textContent = dv.data.type === 'button' ? '按法不對！' : '還沒到位！';
+      hint.textContent = hintText(dv);
       dv.el.appendChild(hint);
       setTimeout(() => hint.remove(), 1500);
       return;

@@ -282,6 +282,17 @@ input { user-select: text; -webkit-user-select: text; }
 .compass .needle::after { bottom: 0; background: #e2e8f0; clip-path: polygon(0 0, 100% 0, 50% 100%); }
 .compass .hub { position: absolute; left: 50%; top: 50%; width: 16%; aspect-ratio: 1; border-radius: 50%; transform: translate(-50%, -50%); background: radial-gradient(circle at 35% 35%, #f8fafc, #64748b); }
 
+/* 指北針：滑動提示＋按住保持的進度環 */
+.compass-wrap { display: flex; flex-direction: column; align-items: center; gap: .25rem; }
+.compass-tip { font-size: .62rem; font-weight: 700; color: rgba(207, 250, 254, .6); letter-spacing: .05em; }
+.compass .hold-ring {
+  position: absolute; inset: -9px; border-radius: 50%; pointer-events: none; opacity: 0; transition: opacity .15s;
+  background: conic-gradient(var(--cyan) calc(var(--hp, 0) * 1turn), rgba(255, 255, 255, .08) 0);
+  -webkit-mask: radial-gradient(circle, transparent 66%, #000 67%); mask: radial-gradient(circle, transparent 66%, #000 67%);
+}
+.compass.holding .hold-ring { opacity: 1; }
+.compass.nudge { animation: bad-shake .3s; }
+
 /* ---------- 全螢幕回饋 ---------- */
 .fx-overlay { position: absolute; inset: 0; pointer-events: none; opacity: 0; z-index: 40; }
 .fx-green { background: radial-gradient(circle, rgba(34, 211, 238, .5), rgba(16, 185, 129, .25) 60%, transparent); }
