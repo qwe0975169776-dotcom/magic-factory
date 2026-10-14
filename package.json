@@ -1,0 +1,16 @@
+{
+  "name": "magic-factory",
+  "version": "1.0.0",
+  "description": "失控魔法工廠 — 5-10 人手機連線派對遊戲",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1"
+  }
+}

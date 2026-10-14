@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#1a120b">
+  <title>失控魔法工廠</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&family=Noto+Serif+TC:wght@700;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Noto Sans TC"', 'system-ui', 'sans-serif'],
+            serif: ['"Noto Serif TC"', 'serif'],
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="bg-[#120c08] font-sans text-amber-50 antialiased">
+<div id="app" class="relative mx-auto h-[100dvh] w-full max-w-md overflow-hidden">
+
+  <!-- ==================== 首頁 ==================== -->
+  <section id="screen-home" class="screen factory-bg flex h-full flex-col items-center justify-center gap-6 px-6">
+    <div class="text-center">
+      <div class="title-gear mx-auto mb-3 text-6xl">⚙️</div>
+      <h1 class="glow-title font-serif text-4xl font-black tracking-widest">失控魔法工廠</h1>
+      <p class="mt-2 text-sm text-amber-200/80">5–10 人｜大聲喊出指令，讓隊友找到機關！</p>
+    </div>
+
+    <div class="brass-card w-full space-y-4 p-5">
+      <label class="block">
+        <span class="mb-1 block text-sm font-bold text-amber-200">你的魔法師名字</span>
+        <input id="input-name" maxlength="12" placeholder="例如：咕嚕大師"
+               class="w-full rounded-xl border-2 border-amber-700 bg-black/40 px-4 py-3 text-lg text-amber-50 placeholder-amber-200/40 outline-none focus:border-amber-400">
+      </label>
+
+      <button id="btn-create" class="btn-primary w-full">🏭 建立新工廠</button>
+
+      <div class="flex items-center gap-2 text-xs text-amber-200/60">
+        <div class="h-px flex-1 bg-amber-200/30"></div>或用邀請碼加入<div class="h-px flex-1 bg-amber-200/30"></div>
+      </div>
+
+      <div class="flex gap-2">
+        <input id="input-code" maxlength="4" placeholder="ABCD" autocapitalize="characters"
+               class="w-0 flex-1 rounded-xl border-2 border-amber-700 bg-black/40 px-4 py-3 text-center font-mono text-2xl uppercase tracking-[0.4em] text-amber-50 placeholder-amber-200/30 outline-none focus:border-amber-400">
+        <button id="btn-join" class="btn-secondary">加入</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 大廳 ==================== -->
+  <section id="screen-lobby" class="screen factory-bg hidden h-full flex-col gap-4 px-5 py-6">
+    <div class="brass-card p-4 text-center">
+      <p class="text-sm text-amber-200/80">工廠邀請碼</p>
+      <p id="lobby-code" class="font-mono text-6xl font-black tracking-[0.3em] text-amber-300 drop-shadow-[0_0_12px_rgba(251,191,36,.6)]">----</p>
+      <button id="btn-share" class="mt-2 rounded-full bg-amber-900/60 px-4 py-1.5 text-sm text-amber-100 active:scale-95">🔗 複製邀請連結</button>
+    </div>
+
+    <div class="brass-card flex min-h-0 flex-1 flex-col p-4">
+      <div class="mb-2 flex items-baseline justify-between">
+        <h2 class="font-serif text-xl font-black">工廠員工</h2>
+        <span id="lobby-count" class="text-sm text-amber-200/80">0 / 10</span>
+      </div>
+      <ul id="lobby-players" class="min-h-0 flex-1 space-y-2 overflow-y-auto"></ul>
+    </div>
+
+    <p id="lobby-hint" class="text-center text-sm text-amber-200/80"></p>
+    <button id="btn-start" class="btn-primary w-full" disabled>⚡ 開始遊戲</button>
+    <button id="btn-leave" class="text-sm text-amber-200/60 underline">離開房間</button>
+  </section>
+
+  <!-- ==================== 遊戲畫面 ==================== -->
+  <section id="screen-game" class="screen hidden h-full flex-col">
+    <!-- 頂部狀態區（10%） -->
+    <header class="status-bar flex h-[10%] min-h-[56px] items-center gap-3 px-3">
+      <div class="flex-1">
+        <div class="mb-1 flex items-center justify-between text-xs font-bold">
+          <span>🏭 工廠穩定度</span>
+          <span id="stability-text">100%</span>
+        </div>
+        <div class="stability-track h-4 w-full overflow-hidden rounded-full">
+          <div id="stability-fill" class="stability-fill h-full rounded-full"></div>
+        </div>
+      </div>
+      <div class="timer-box flex flex-col items-center justify-center rounded-xl px-3 py-1">
+        <span class="text-[10px] text-amber-200/70">剩餘時間</span>
+        <span id="game-timer" class="font-mono text-xl font-black">3:00</span>
+      </div>
+    </header>
+
+    <!-- 指令區（30%） -->
+    <section id="instruction-zone" class="parchment relative flex h-[30%] flex-col items-center justify-center overflow-hidden px-5">
+      <div class="magic-circle" aria-hidden="true"></div>
+      <p class="relative z-10 mb-1 text-xs font-bold tracking-widest text-amber-900/80">📣 大聲喊出來！</p>
+      <p id="instruction-text" class="instruction-text relative z-10 text-center font-serif font-black leading-snug text-[#3b1d0a]">
+        準備開工……
+      </p>
+      <div class="absolute bottom-3 left-4 right-4 z-10 h-3 overflow-hidden rounded-full bg-[#3b1d0a]/25 ring-1 ring-[#3b1d0a]/40">
+        <div id="instr-bar" class="instr-bar h-full w-0 rounded-full"></div>
+      </div>
+      <span id="instr-seconds" class="absolute bottom-6 right-5 z-10 font-mono text-xs font-bold text-[#3b1d0a]/70"></span>
+    </section>
+
+    <!-- 操作區（60%） -->
+    <main id="panel" class="wood-panel grid h-[60%] grid-cols-2 grid-rows-2 gap-3 p-3"></main>
+  </section>
+
+  <!-- ==================== 結算 ==================== -->
+  <section id="screen-result" class="screen factory-bg hidden h-full flex-col gap-4 px-5 py-6">
+    <div class="brass-card p-5 text-center">
+      <p id="result-reason" class="text-sm text-amber-200/80"></p>
+      <p id="result-rank" class="glow-title mt-1 font-serif text-3xl font-black"></p>
+      <div class="mt-4 grid grid-cols-3 gap-2 text-center">
+        <div class="stat-cell"><span id="result-completed" class="text-2xl font-black text-emerald-300">0</span><small>完成指令</small></div>
+        <div class="stat-cell"><span id="result-failed" class="text-2xl font-black text-amber-300">0</span><small>逾時</small></div>
+        <div class="stat-cell"><span id="result-wrong" class="text-2xl font-black text-rose-300">0</span><small>亂按</small></div>
+      </div>
+      <p class="mt-3 text-sm">最終穩定度 <b id="result-stability">0%</b>｜撐了 <b id="result-time">0:00</b></p>
+    </div>
+    <div class="brass-card flex min-h-0 flex-1 flex-col p-4">
+      <h2 class="mb-2 font-serif text-xl font-black">員工表揚榜</h2>
+      <ol id="result-players" class="min-h-0 flex-1 space-y-2 overflow-y-auto"></ol>
+    </div>
+    <button id="btn-again" class="btn-primary w-full">🔁 回到大廳再來一局</button>
+    <p id="result-wait" class="hidden text-center text-sm text-amber-200/80">等待房主回到大廳……</p>
+  </section>
+
+  <!-- 全螢幕特效層 -->
+  <div id="fx-green" class="fx-overlay fx-green" aria-hidden="true"></div>
+  <div id="fx-red" class="fx-overlay fx-red" aria-hidden="true"></div>
+
+  <!-- 提示訊息 -->
+  <div id="toast" class="toast pointer-events-none absolute left-1/2 top-4 z-50 -translate-x-1/2 rounded-full bg-black/80 px-4 py-2 text-sm text-amber-50 opacity-0 shadow-lg"></div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="js/client.js"></script>
+</body>
+</html>
