@@ -59,11 +59,24 @@
   </section>
 
   <!-- ==================== 大廳 ==================== -->
-  <section id="screen-lobby" class="screen relative hidden h-full flex-col gap-4 px-5 py-6">
+  <section id="screen-lobby" class="screen relative hidden h-full flex-col gap-3 px-5 py-5">
     <div class="glass-card p-4 text-center">
       <p class="text-sm text-cyan-100/80">潛水船船號</p>
-      <p id="lobby-code" class="font-mono text-6xl font-black tracking-[0.3em] text-amber-300 drop-shadow-[0_0_12px_rgba(251,191,36,.6)]">----</p>
+      <p id="lobby-code" class="font-mono text-5xl font-black tracking-[0.3em] text-amber-300 drop-shadow-[0_0_12px_rgba(251,191,36,.6)]">----</p>
       <button id="btn-share" class="mt-2 rounded-full bg-cyan-900/60 px-4 py-1.5 text-sm text-cyan-50 active:scale-95">🔗 複製上船連結</button>
+    </div>
+
+    <!-- 難度（船長選） -->
+    <div class="glass-card p-3">
+      <div class="mb-2 flex items-baseline justify-between">
+        <h2 class="font-serif text-lg font-black">潛水難度</h2>
+        <span id="diff-note" class="text-xs text-cyan-100/70"></span>
+      </div>
+      <div id="diff-picker" class="diff-picker grid grid-cols-3 gap-2" role="radiogroup" aria-label="潛水難度">
+        <button type="button" class="diff" data-level="easy" role="radio"><b>🐠</b><span>體驗潛水</span><small>低｜聽名字就好</small></button>
+        <button type="button" class="diff" data-level="medium" role="radio"><b>🐬</b><span>進階潛水員</span><small>中｜三段開關＋方向</small></button>
+        <button type="button" class="diff" data-level="hard" role="radio"><b>🦈</b><span>技術潛水</span><small>高｜數字＋潛水事故</small></button>
+      </div>
     </div>
 
     <div class="glass-card flex min-h-0 flex-1 flex-col p-4">
@@ -102,6 +115,7 @@
     <section id="instruction-zone" class="slate relative flex h-[30%] flex-col items-center justify-center overflow-hidden px-5">
       <div class="sonar" aria-hidden="true"><i></i><i></i><i></i></div>
       <p class="relative z-10 mb-1 text-xs font-bold tracking-widest text-sky-900/80">📣 大聲喊給潛伴聽！</p>
+      <span id="level-chip" class="level-chip"></span>
       <p id="instruction-text" class="instruction-text relative z-10 text-center font-serif font-black leading-snug text-[#0b2a3d]">
         準備下水……
       </p>

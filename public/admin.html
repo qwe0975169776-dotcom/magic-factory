@@ -64,7 +64,7 @@
 
   <!-- 遊戲參數 -->
   <section id="tab-settings" class="space-y-3">
-    <div id="settings-form" class="card grid gap-4 p-4 sm:grid-cols-2"></div>
+    <div id="settings-form" class="space-y-3"></div>
     <p class="text-sm text-cyan-200/70">修改後下一局開始生效，進行中的遊戲不受影響。</p>
     <div class="flex gap-2">
       <button id="btn-save-settings" class="btn btn-gold flex-1">儲存參數</button>
@@ -86,6 +86,7 @@
           <option value="switch">開關</option>
           <option value="slider">滑桿</option>
           <option value="compass">指北針</option>
+          <option value="selector">選擇器</option>
         </select>
       </div>
       <div class="flex flex-wrap gap-2">
@@ -109,7 +110,7 @@
     <div class="card overflow-x-auto p-2">
       <table class="w-full text-left text-sm">
         <thead class="text-cyan-300">
-          <tr><th>時間</th><th>人數</th><th>結果</th><th>評價</th><th>完成</th><th>逾時</th><th>亂按</th><th>剩餘氣量</th><th>玩家</th></tr>
+          <tr><th>時間</th><th>難度</th><th>人數</th><th>結果</th><th>評價</th><th>完成</th><th>逾時</th><th>亂按</th><th>剩餘氣量</th><th>玩家</th></tr>
         </thead>
         <tbody id="results-body"></tbody>
       </table>
@@ -145,8 +146,17 @@
     switch: [['開啟', 'on'], ['關閉', 'off']],
     slider: [['推到頂端', 'max'], ['推到中間', 'mid'], ['拉到底部', 'min']],
     compass: [['轉到指定方向', 'random']],
+    selector: [['轉到指定選項', 'random']],
   };
-  const TYPE_LABEL = { button: '按鈕', switch: '開關', slider: '滑桿', compass: '指北針' };
+  const TYPE_LABEL = { button: '按鈕', switch: '開關', slider: '滑桿', compass: '指北針', selector: '選擇器' };
+  const TYPE_LEVEL_NOTE = {
+    button: '低中難度按一下；高難度會要求按一下、連按三下或長按',
+    switch: '低難度用下面的固定開／關；中高難度變成三段式（關／半開／全開），隨機指定',
+    slider: '低難度用下面的固定位置；中難度隨機底中頂；高難度變成 0～10 刻度',
+    compass: '只在中（4 方位）、高（8 方位）難度出現，方向每次隨機',
+    selector: '只在高難度出現，每次隨機指定一個選項',
+  };
+  const LEVEL_NAME = { easy: '低', medium: '中', hard: '高' };
   const REASON = { timeup: '平安上船', collapse: '緊急上升', notEnough: '人數不足' };
 
   let token = store.get();
@@ -224,12 +234,24 @@
   // ---------------- 遊戲參數 ----------------
   function renderSettings() {
     const { settings, defaults, rules } = state;
-    $('settings-form').innerHTML = Object.entries(rules).map(([key, [label, min, max]]) => `
-      <label class="block">
-        <span class="mb-1 flex justify-between text-sm font-bold"><span>${esc(label)}</span><span class="font-normal text-cyan-200/60">預設 ${defaults[key]}</span></span>
-        <input type="number" inputmode="decimal" class="field text-lg" data-key="${key}" min="${min}" max="${max}" step="${key === 'MIN_PLAYERS' ? 1 : 0.5}" value="${settings[key]}">
-        <span class="text-xs text-cyan-200/50">可設定 ${min}–${max}</span>
-      </label>`).join('');
+    const groups = [];
+    for (const rule of rules) {
+      let g = groups.find((x) => x.name === rule[4]);
+      if (!g) groups.push((g = { name: rule[4], rules: [] }));
+      g.rules.push(rule);
+    }
+    $('settings-form').innerHTML = groups.map((g) => `
+      <div class="card p-4">
+        <h3 class="mb-3 text-lg font-black">${esc(g.name === '共用' ? '⚙️ 共用設定' : g.name)}</h3>
+        <div class="grid gap-4 sm:grid-cols-2">
+        ${g.rules.map(([key, label, min, max]) => `
+          <label class="block">
+            <span class="mb-1 flex justify-between text-sm font-bold"><span>${esc(label)}</span><span class="font-normal text-cyan-200/60">預設 ${defaults[key]}</span></span>
+            <input type="number" inputmode="decimal" class="field text-lg" data-key="${key}" min="${min}" max="${max}" step="${key === 'MIN_PLAYERS' ? 1 : 0.5}" value="${settings[key]}">
+            <span class="text-xs text-cyan-200/50">可設定 ${min}–${max}</span>
+          </label>`).join('')}
+        </div>
+      </div>`).join('');
   }
 
   $('btn-save-settings').addEventListener('click', async () => {
@@ -258,12 +280,15 @@
   function autoInstruction(d) {
     if (!d.name) return '';
     if (d.type === 'compass') return `把${d.name}轉到（隨機方向）！`;
+    if (d.type === 'selector') return `把${d.name}轉到（隨機選項）！`;
     return d.type === 'slider' ? `把${d.name}${d.action}！` : `${d.action}${d.name}！`;
   }
 
   function renderDevices() {
     const enabled = draft.filter((d) => d.enabled).length;
-    $('device-summary').textContent = `共 ${draft.length} 個機關，啟用 ${enabled} 個，最多可 ${Math.min(10, Math.floor(enabled / 4))} 人同時玩`;
+    const tl = state.typeLevels || {};
+    const perLevel = (lv) => Math.min(10, Math.floor(draft.filter((d) => d.enabled && (tl[d.type] || []).includes(lv)).length / 4));
+    $('device-summary').textContent = `共 ${draft.length} 個機關，啟用 ${enabled} 個｜最多人數：低 ${perLevel('easy')}・中 ${perLevel('medium')}・高 ${perLevel('hard')}`;
 
     const q = $('device-search').value.trim();
     const f = $('device-filter').value;
@@ -285,7 +310,8 @@
           <button data-act="del" class="btn btn-red px-3 py-1 text-xs">刪除</button>
         </div>
         <input class="field font-bold" data-f="name" value="${esc(d.name)}" placeholder="機關名稱（越拗口越好笑）">
-        ${d.type === 'compass' ? '<p class="text-xs text-cyan-200/70">指北針每次會隨機指定東西南北，不用寫指令文字</p>' : ''}
+        <p class="text-xs text-cyan-200/70">💡 ${esc(TYPE_LEVEL_NOTE[d.type] || '')}</p>
+        ${d.type === 'selector' ? `<input class="field text-sm" data-f="options" value="${esc((d.options || []).join('、'))}" placeholder="選項，用頓號分隔（2～6 個），例如：空氣、高氧32、三混氣">` : ''}
         <div class="grid grid-cols-2 gap-2">
           <select class="field" data-f="type">
             ${Object.entries(TYPE_LABEL).map(([v, l]) => `<option value="${v}" ${v === d.type ? 'selected' : ''}>${l}</option>`).join('')}
@@ -308,6 +334,11 @@
     if (!card) return;
     const d = draft[card.dataset.i];
     const f = e.target.dataset.f;
+    if (f === 'options') {
+      d.options = e.target.value.split(/[,，、]/).map((o) => o.trim()).filter(Boolean);
+      setDirty(true);
+      return;
+    }
     if (f === 'name' || f === 'instruction') {
       const oldAuto = autoInstruction(d);
       d[f] = e.target.value;
@@ -327,7 +358,11 @@
     const f = e.target.dataset.f;
     const wasAuto = d.instruction === autoInstruction(d);
     if (f === 'enabled') d.enabled = e.target.checked;
-    else if (f === 'type') { d.type = e.target.value; [d.action, d.target] = ACTIONS[d.type][0]; }
+    else if (f === 'type') {
+      d.type = e.target.value;
+      [d.action, d.target] = ACTIONS[d.type][0];
+      if (d.type === 'selector' && !(d.options && d.options.length)) d.options = ['選項一', '選項二', '選項三'];
+    }
     else if (f === 'action') { [d.action, d.target] = e.target.value.split('|'); }
     else return;
     if (f !== 'enabled' && wasAuto) d.instruction = autoInstruction(d);
@@ -398,8 +433,8 @@
   }
 
   $('btn-export').addEventListener('click', () => {
-    const data = draft.map(({ id, name, type, action, target, instruction, enabled }) =>
-      ({ id, name, type, action, target, instruction, ...(enabled ? {} : { enabled: false }) }));
+    const data = draft.map(({ id, name, type, action, target, instruction, enabled, options }) =>
+      ({ id, name, type, action, target, instruction, ...(type === 'selector' ? { options } : {}), ...(enabled ? {} : { enabled: false }) }));
     download('devices.json', JSON.stringify(data, null, 2), 'application/json');
   });
 
@@ -425,7 +460,7 @@
     $('results-empty').classList.toggle('hidden', list.length > 0);
     $('results-body').innerHTML = list.map((r) => `
       <tr class="border-t border-cyan-900/60">
-        <td>${esc(fmtTime(r.time))}</td><td>${r.playerCount}</td><td>${esc(REASON[r.reason] || r.reason)}</td>
+        <td>${esc(fmtTime(r.time))}</td><td>${esc(LEVEL_NAME[r.difficulty] || '')}</td><td>${r.playerCount}</td><td>${esc(REASON[r.reason] || r.reason)}</td>
         <td>${esc(r.rank)}</td><td class="text-emerald-300">${r.completed}</td><td class="text-cyan-300">${r.failed}</td>
         <td class="text-rose-300">${r.wrong}</td><td>${r.stability} bar</td><td class="text-xs">${esc(r.names.join('、'))}</td>
       </tr>`).join('');
@@ -437,9 +472,9 @@
 
   $('btn-csv').addEventListener('click', () => {
     if (!state.results.length) return toast('還沒有成績可以下載');
-    const head = ['時間', '房間', '人數', '結果', '評價', '完成指令', '逾時', '亂按', '剩餘氣量(bar)', '撐了幾秒', '玩家'];
+    const head = ['時間', '難度', '房間', '人數', '結果', '評價', '完成指令', '逾時', '亂按', '剩餘氣量(bar)', '撐了幾秒', '玩家'];
     const cell = (v) => `"${String(v).replace(/"/g, '""')}"`;
-    const rows = state.results.map((r) => [fmtTime(r.time), r.code, r.playerCount, REASON[r.reason] || r.reason, r.rank,
+    const rows = state.results.map((r) => [fmtTime(r.time), LEVEL_NAME[r.difficulty] || '', r.code, r.playerCount, REASON[r.reason] || r.reason, r.rank,
       r.completed, r.failed, r.wrong, r.stability, r.survivedSeconds, r.names.join('、')].map(cell).join(','));
     const date = new Date().toISOString().slice(0, 10);
     download(`深海大亂潛成績_${date}.csv`, '﻿' + [head.map(cell).join(','), ...rows].join('\r\n'), 'text/csv');

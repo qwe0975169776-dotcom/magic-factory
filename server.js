@@ -10,11 +10,12 @@
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+const crypto = require('crypto');
 const express = require('express');
 const { Server } = require('socket.io');
 
 // ============================================================
-// 遊戲參數（想調難度改這裡）
+// 遊戲參數
 // ============================================================
 const CONFIG = {
   PORT: Number(process.env.PORT) || 3000,
@@ -22,62 +23,96 @@ const CONFIG = {
   MAX_PLAYERS: 10,
   DEVICES_PER_PLAYER: 4,
   GAME_DURATION_MS: (Number(process.env.GAME_SECONDS) || 180) * 1000, // 一局 3 分鐘
-  INSTRUCTION_MS: 15000,          // 開局時每條指令 15 秒
-  INSTRUCTION_MIN_MS: 9000,       // 越玩越快，結尾縮短到 9 秒
   COUNTDOWN_MS: 3500,             // 開局「3、2、1、下潛！」倒數
-  CHAOS_MS: 30000,                // 最後 30 秒進入「洋流失控」
-  START_STABILITY: 100,           // 氣瓶壓力：開局 100 bar
+  AIR_FULL: 100,                  // 氣瓶壓力：開局 100 bar
   AIR_EMPTY: 20,                  // 降到 20 bar → 全員緊急上升（遊戲結束）
-  WRONG_PENALTY: 4,               // 亂按（沒人要求的機關）扣 4 bar
   WRONG_COOLDOWN_MS: 1000,        // 同一人連續亂按，1 秒內只扣一次
-  TIMEOUT_PENALTY: 6,             // 指令逾時扣 6 bar
-  SUCCESS_BONUS: 2,               // 完成指令回 2 bar
-  RESET_DELAY_MS: 700,            // 完成後機關自動歸位的延遲
+  RESET_DELAY_MS: 700,            // 低難度：完成後機關自動歸位的延遲
   NEXT_INSTRUCTION_DELAY_MS: 1200,// 完成/失敗後多久配發下一條指令
   START_STAGGER_MS: 500,          // 開局時每位玩家指令錯開時間
+  ACCIDENT_EVERY_MS: 7000,        // 高難度失控期間，每 7 秒發生一次潛水事故
   NAME_MAX: 12,
   ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || '12345678', // 後台密碼（建議在 Render 設定 ADMIN_PASSWORD 改掉）
   RESULTS_MAX: 300,
 };
 
-// 後台可調整的遊戲參數：key → [說明, 最小值, 最大值]
-const SETTING_RULES = {
-  GAME_SECONDS: ['一局秒數', 30, 900],
-  INSTRUCTION_SECONDS: ['開局指令秒數', 5, 60],
-  INSTRUCTION_MIN_SECONDS: ['結尾指令秒數（越玩越快）', 3, 60],
-  MIN_PLAYERS: ['最低開局人數', 2, 10],
-  WRONG_PENALTY: ['亂按扣氣（bar）', 0, 40],
-  TIMEOUT_PENALTY: ['逾時扣氣（bar）', 0, 40],
-  SUCCESS_BONUS: ['完成補氣（bar）', 0, 20],
-  WRONG_COOLDOWN_SECONDS: ['亂按冷卻秒數', 0, 10],
+// 三種難度（後台可調）
+const LEVELS = {
+  easy: { label: '🐠 體驗潛水', INSTRUCTION_MS: 20000, INSTRUCTION_MIN_MS: 14000, WRONG_PENALTY: 2, TIMEOUT_PENALTY: 4, SUCCESS_BONUS: 3, CHAOS_MS: 0, ACCIDENTS: false },
+  medium: { label: '🐬 進階潛水員', INSTRUCTION_MS: 15000, INSTRUCTION_MIN_MS: 9000, WRONG_PENALTY: 4, TIMEOUT_PENALTY: 6, SUCCESS_BONUS: 2, CHAOS_MS: 30000, ACCIDENTS: false },
+  hard: { label: '🦈 技術潛水', INSTRUCTION_MS: 12000, INSTRUCTION_MIN_MS: 6000, WRONG_PENALTY: 5, TIMEOUT_PENALTY: 8, SUCCESS_BONUS: 1, CHAOS_MS: 45000, ACCIDENTS: true },
 };
+const LEVEL_KEYS = Object.keys(LEVELS);
+const levelOf = (room) => LEVELS[room.difficulty] || LEVELS.medium;
+
+// 各類機關在哪些難度出現
+const TYPE_LEVELS = {
+  button: ['easy', 'medium', 'hard'],
+  switch: ['easy', 'medium', 'hard'],
+  slider: ['easy', 'medium', 'hard'],
+  compass: ['medium', 'hard'],
+  selector: ['hard'],
+};
+const TYPES = new Set(Object.keys(TYPE_LEVELS));
+
+// 後台可調整的參數：[key, 說明, 最小值, 最大值, 分組]
+const SETTING_RULES = [
+  ['GAME_SECONDS', '一局秒數', 30, 900, '共用'],
+  ['MIN_PLAYERS', '最低開局人數', 2, 10, '共用'],
+  ['WRONG_COOLDOWN_SECONDS', '亂按冷卻秒數', 0, 10, '共用'],
+];
+const LEVEL_RULES = [
+  ['INSTRUCTION_SECONDS', '開局指令秒數', 4, 60],
+  ['INSTRUCTION_MIN_SECONDS', '結尾指令秒數（越玩越快）', 3, 60],
+  ['WRONG_PENALTY', '亂按扣氣（bar）', 0, 40],
+  ['TIMEOUT_PENALTY', '逾時扣氣（bar）', 0, 40],
+  ['SUCCESS_BONUS', '完成補氣（bar）', 0, 20],
+  ['CHAOS_SECONDS', '洋流失控秒數（0＝沒有）', 0, 300],
+];
+for (const lv of LEVEL_KEYS) {
+  for (const [k, label, min, max] of LEVEL_RULES) SETTING_RULES.push([`${lv}.${k}`, label, min, max, LEVELS[lv].label]);
+}
+
 function getSettings() {
-  return {
+  const s = {
     GAME_SECONDS: CONFIG.GAME_DURATION_MS / 1000,
-    INSTRUCTION_SECONDS: CONFIG.INSTRUCTION_MS / 1000,
-    INSTRUCTION_MIN_SECONDS: CONFIG.INSTRUCTION_MIN_MS / 1000,
     MIN_PLAYERS: CONFIG.MIN_PLAYERS,
-    WRONG_PENALTY: CONFIG.WRONG_PENALTY,
-    TIMEOUT_PENALTY: CONFIG.TIMEOUT_PENALTY,
-    SUCCESS_BONUS: CONFIG.SUCCESS_BONUS,
     WRONG_COOLDOWN_SECONDS: CONFIG.WRONG_COOLDOWN_MS / 1000,
   };
+  for (const lv of LEVEL_KEYS) {
+    const L = LEVELS[lv];
+    s[`${lv}.INSTRUCTION_SECONDS`] = L.INSTRUCTION_MS / 1000;
+    s[`${lv}.INSTRUCTION_MIN_SECONDS`] = L.INSTRUCTION_MIN_MS / 1000;
+    s[`${lv}.WRONG_PENALTY`] = L.WRONG_PENALTY;
+    s[`${lv}.TIMEOUT_PENALTY`] = L.TIMEOUT_PENALTY;
+    s[`${lv}.SUCCESS_BONUS`] = L.SUCCESS_BONUS;
+    s[`${lv}.CHAOS_SECONDS`] = L.CHAOS_MS / 1000;
+  }
+  return s;
 }
 function applySettings(s) {
   CONFIG.GAME_DURATION_MS = s.GAME_SECONDS * 1000;
-  CONFIG.INSTRUCTION_MS = s.INSTRUCTION_SECONDS * 1000;
-  CONFIG.INSTRUCTION_MIN_MS = Math.min(s.INSTRUCTION_MIN_SECONDS, s.INSTRUCTION_SECONDS) * 1000;
   CONFIG.MIN_PLAYERS = s.MIN_PLAYERS;
-  CONFIG.WRONG_PENALTY = s.WRONG_PENALTY;
-  CONFIG.TIMEOUT_PENALTY = s.TIMEOUT_PENALTY;
-  CONFIG.SUCCESS_BONUS = s.SUCCESS_BONUS;
   CONFIG.WRONG_COOLDOWN_MS = s.WRONG_COOLDOWN_SECONDS * 1000;
+  for (const lv of LEVEL_KEYS) {
+    const L = LEVELS[lv];
+    L.INSTRUCTION_MS = s[`${lv}.INSTRUCTION_SECONDS`] * 1000;
+    L.INSTRUCTION_MIN_MS = Math.min(s[`${lv}.INSTRUCTION_MIN_SECONDS`], s[`${lv}.INSTRUCTION_SECONDS`]) * 1000;
+    L.WRONG_PENALTY = s[`${lv}.WRONG_PENALTY`];
+    L.TIMEOUT_PENALTY = s[`${lv}.TIMEOUT_PENALTY`];
+    L.SUCCESS_BONUS = s[`${lv}.SUCCESS_BONUS`];
+    L.CHAOS_MS = s[`${lv}.CHAOS_SECONDS`] * 1000;
+  }
 }
 
-const SLIDER_MAX = 4; // 滑桿 0~4 共五格：0=底、2=中、4=頂
-const TYPES = new Set(['button', 'switch', 'slider', 'compass']);
-const DIRS = ['N', 'E', 'S', 'W'];
-const DIR_NAME = { N: '北', E: '東', S: '南', W: '西' };
+// 機關的數值範圍
+const SLIDER_MAX = 4;   // 低／中難度滑桿：0~4（底、中、頂 = 0、2、4）
+const STEP_MAX = 10;    // 高難度刻度滑桿：0~10
+const DIR4 = ['N', 'E', 'S', 'W'];
+const DIR8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+const DIR_NAME = { N: '北', NE: '東北', E: '東', SE: '東南', S: '南', SW: '西南', W: '西', NW: '西北' };
+const TRI_NAME = ['關掉', '調到半開', '全開'];
+const SLIDE_NAME = { 0: '拉到底部', 2: '推到中間', 4: '推到頂端' };
 
 // ============================================================
 // 題庫載入
@@ -86,18 +121,17 @@ function resolveTarget(d) {
   const t = d.target;
   const a = String(d.action || '');
   if (d.type === 'button') return 'press';
-  if (d.type === 'compass') return 'random'; // 指北針每次隨機指定方向
+  if (d.type === 'compass' || d.type === 'selector') return 'random';
   if (d.type === 'switch') {
     if (t === 'on' || t === 'off') return t;
     if (/關|停/.test(a)) return 'off';
     if (/開|啟/.test(a)) return 'on';
     return null;
   }
-  // slider
+  // slider（低難度用的固定目標）
   const named = { max: SLIDER_MAX, mid: SLIDER_MAX / 2, min: 0 };
   if (typeof t === 'string' && Object.prototype.hasOwnProperty.call(named, t)) return named[t];
   if (Number.isInteger(t) && t >= 0 && t <= SLIDER_MAX) return t;
-  // 沒寫 target 時，從 action 文字推斷
   if (/頂|最大|最高|滿/.test(a)) return SLIDER_MAX;
   if (/底|最小|最低|歸零/.test(a)) return 0;
   if (/中/.test(a)) return SLIDER_MAX / 2;
@@ -120,18 +154,21 @@ function sanitizeDevices(raw) {
     if (seen.has(id)) return errors.push(`${label}：id「${id}」重複`);
     const target = resolveTarget(d);
     if (target === null) return errors.push(`${label}：看不懂操作狀態`);
+    let options;
+    if (d.type === 'selector') {
+      options = (Array.isArray(d.options) ? d.options : String(d.options || '').split(/[,，、]/))
+        .map((o) => String(o).trim().slice(0, 8)).filter(Boolean);
+      options = [...new Set(options)];
+      if (options.length < 2 || options.length > 6) return errors.push(`${label}：選擇器要有 2 到 6 個不重複的選項`);
+    }
     seen.add(id);
     const name = String(d.name).trim().slice(0, 40);
     const action = String(d.action || '').trim().slice(0, 20);
-    list.push({
-      id,
-      name,
-      type: d.type,
-      action,
-      instruction: d.type === 'compass' ? `把${name}轉到（隨機方向）！` : String(d.instruction || '').trim().slice(0, 80) || (d.type === 'slider' ? `把${name}${action}！` : `${action}${name}！`),
-      target,
-      enabled: d.enabled !== false,
-    });
+    let instruction = String(d.instruction || '').trim().slice(0, 80);
+    if (d.type === 'compass') instruction = `把${name}轉到（隨機方向）！`;
+    else if (d.type === 'selector') instruction = `把${name}轉到（隨機選項）！`;
+    else if (!instruction) instruction = d.type === 'slider' ? `把${name}${action}！` : `${action}${name}！`;
+    list.push({ id, name, type: d.type, action, instruction, target, enabled: d.enabled !== false, ...(options ? { options } : {}) });
   });
   return { list, errors };
 }
@@ -145,24 +182,108 @@ function loadDefaultDevices() {
 
 let DEVICES = loadDefaultDevices();
 const activeDevices = () => DEVICES.filter((d) => d.enabled);
-const maxPlayers = () => Math.min(CONFIG.MAX_PLAYERS, Math.floor(activeDevices().length / CONFIG.DEVICES_PER_PLAYER));
+const poolFor = (level) => activeDevices().filter((d) => TYPE_LEVELS[d.type].includes(level));
+const maxPlayersFor = (level) => Math.min(CONFIG.MAX_PLAYERS, Math.floor(poolFor(level).length / CONFIG.DEVICES_PER_PLAYER));
+const maxPlayers = () => Math.min(...LEVEL_KEYS.map(maxPlayersFor)); // 各難度都能玩的上限
 const DEFAULT_SETTINGS = getSettings();
-console.log(`[題庫] 載入 ${DEVICES.length} 個潛水機關，最多 ${maxPlayers()} 人一房`);
+console.log(`[題庫] 載入 ${DEVICES.length} 個潛水機關；最多人數 低 ${maxPlayersFor('easy')}／中 ${maxPlayersFor('medium')}／高 ${maxPlayersFor('hard')}`);
 
-/** 機關「待命」狀態：與目標相反，保證玩家操作一次就能達成 */
+// ============================================================
+// 機關在各難度的操作方式
+// ============================================================
+/** 告訴前端要畫哪種控制元件 */
+function controlMode(level, dev) {
+  switch (dev.type) {
+    case 'button': return level === 'hard' ? 'gesture' : 'tap';
+    case 'switch': return level === 'easy' ? 'twoWay' : 'threeWay';
+    case 'slider': return level === 'hard' ? 'step10' : 'range5';
+    case 'compass': return level === 'hard' ? 'dir8' : 'dir4';
+    case 'selector': return 'options';
+    default: return 'tap';
+  }
+}
+
+/** 低難度用固定目標：機關「待命」狀態與目標相反，保證操作一次就能達成 */
 function readyValue(dev) {
   if (dev.type === 'switch') return dev.target === 'on' ? 'off' : 'on';
   if (dev.type === 'slider') return dev.target === 0 ? SLIDER_MAX : 0;
-  return null; // button 無狀態；compass 每次隨機目標，不用歸位
+  return null;
 }
 
-function normalizeValue(dev, value) {
-  if (dev.type === 'button') return 'press';
-  if (dev.type === 'switch') return value === 'on' || value === true ? 'on' : 'off';
-  if (dev.type === 'compass') return DIRS.includes(value) ? value : null;
-  const n = Math.round(Number(value));
-  if (!Number.isFinite(n)) return null;
-  return Math.max(0, Math.min(SLIDER_MAX, n));
+function initialValue(level, dev) {
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  switch (controlMode(level, dev)) {
+    case 'twoWay': return readyValue(dev);
+    case 'threeWay': return pick([0, 1, 2]);
+    case 'range5': return level === 'easy' ? readyValue(dev) : pick([0, 2, 4]);
+    case 'step10': return Math.floor(Math.random() * (STEP_MAX + 1));
+    case 'dir4': return pick(DIR4);
+    case 'dir8': return pick(DIR8);
+    case 'options': return Math.floor(Math.random() * dev.options.length);
+    default: return null;
+  }
+}
+
+function normalizeValue(level, dev, value) {
+  const int = (max) => {
+    const n = Math.round(Number(value));
+    return Number.isFinite(n) ? Math.max(0, Math.min(max, n)) : null;
+  };
+  switch (controlMode(level, dev)) {
+    case 'tap': return 'press';
+    case 'gesture': return ['press', 'double', 'triple', 'hold'].includes(value) ? value : 'press';
+    case 'twoWay': return value === 'on' || value === true ? 'on' : 'off';
+    case 'threeWay': return int(2);
+    case 'range5': return int(SLIDER_MAX);
+    case 'step10': return int(STEP_MAX);
+    case 'dir4': return DIR4.includes(value) ? value : null;
+    case 'dir8': return DIR8.includes(value) ? value : null;
+    case 'options': return int(dev.options.length - 1);
+    default: return null;
+  }
+}
+
+/** 產生這條指令的目標與文字（目標永遠和機關目前狀態不同，一定要動手調整） */
+function buildInstruction(level, dev, current) {
+  const pickOther = (arr) => {
+    const opts = arr.filter((v) => v !== current);
+    return opts[Math.floor(Math.random() * opts.length)];
+  };
+  switch (controlMode(level, dev)) {
+    case 'tap':
+    case 'twoWay':
+      return { target: dev.type === 'button' ? 'press' : dev.target, text: dev.instruction };
+    case 'range5': {
+      if (level === 'easy') return { target: dev.target, text: dev.instruction };
+      const t = pickOther([0, 2, 4]);
+      return { target: t, text: `把${dev.name}${SLIDE_NAME[t]}！` };
+    }
+    case 'gesture': {
+      const t = ['press', 'press', 'triple', 'hold'][Math.floor(Math.random() * 4)];
+      if (t === 'press') return { target: t, text: dev.instruction };
+      if (t === 'triple') return { target: t, text: `連按三下${dev.name}！` };
+      return { target: t, text: `長按${dev.name}兩秒！` };
+    }
+    case 'threeWay': {
+      const t = pickOther([0, 1, 2]);
+      return { target: t, text: `把${dev.name}${TRI_NAME[t]}！` };
+    }
+    case 'step10': {
+      const t = pickOther([...Array(STEP_MAX + 1).keys()]);
+      return { target: t, text: `把${dev.name}調到 ${t}！` };
+    }
+    case 'dir4':
+    case 'dir8': {
+      const t = pickOther(level === 'hard' ? DIR8 : DIR4);
+      return { target: t, text: `把${dev.name}轉到${DIR_NAME[t]}！` };
+    }
+    case 'options': {
+      const t = pickOther([...dev.options.keys()]);
+      return { target: t, text: `把${dev.name}轉到「${dev.options[t]}」！` };
+    }
+    default:
+      return { target: 'press', text: dev.instruction };
+  }
 }
 
 // ============================================================
@@ -188,7 +309,7 @@ function generateCode() {
     for (let k = 0; k < 4; k++) c += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
     if (!rooms.has(c)) return c;
   }
-  throw new Error('無法產生房間碼');
+  throw new Error('無法產生船號');
 }
 
 // ============================================================
@@ -204,7 +325,6 @@ app.get('/admin', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'ad
 // ============================================================
 // 後台 API（密碼登入後取得 token）
 // ============================================================
-const crypto = require('crypto');
 const adminTokens = new Map();   // token → 到期時間
 const loginAttempts = new Map(); // ip → { count, until }
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
@@ -237,7 +357,8 @@ function adminState() {
     rules: SETTING_RULES,
     devices: DEVICES.map(adminDeviceView),
     activeCount: activeDevices().length,
-    maxPlayers: maxPlayers(),
+    maxPlayers: { easy: maxPlayersFor('easy'), medium: maxPlayersFor('medium'), hard: maxPlayersFor('hard') },
+    typeLevels: TYPE_LEVELS,
     results: gameLog,
     usingDefaultPassword: !process.env.ADMIN_PASSWORD,
   };
@@ -264,11 +385,11 @@ app.get('/api/admin/state', requireAdmin, (_req, res) => res.json({ ok: true, ..
 app.put('/api/admin/settings', requireAdmin, (req, res) => {
   const input = req.body || {};
   const next = getSettings();
-  for (const [key, [label, min, max]] of Object.entries(SETTING_RULES)) {
+  for (const [key, label, min, max, group] of SETTING_RULES) {
     if (input[key] === undefined) continue;
     const v = Number(input[key]);
     if (!Number.isFinite(v) || v < min || v > max) {
-      return res.status(400).json({ ok: false, error: `「${label}」要介於 ${min} 到 ${max}` });
+      return res.status(400).json({ ok: false, error: `${group}「${label}」要介於 ${min} 到 ${max}` });
     }
     next[key] = key === 'MIN_PLAYERS' ? Math.round(v) : Math.round(v * 10) / 10;
   }
@@ -287,10 +408,12 @@ app.post('/api/admin/settings/reset', requireAdmin, (_req, res) => {
 app.put('/api/admin/devices', requireAdmin, (req, res) => {
   const { list, errors } = sanitizeDevices(req.body && req.body.devices);
   if (errors.length) return res.status(400).json({ ok: false, error: errors.slice(0, 5).join('\n') });
-  const enabled = list.filter((d) => d.enabled).length;
   const needed = CONFIG.MIN_PLAYERS * CONFIG.DEVICES_PER_PLAYER;
-  if (enabled < needed) {
-    return res.status(400).json({ ok: false, error: `至少要啟用 ${needed} 個機關（${CONFIG.MIN_PLAYERS} 人 × 每人 4 個），目前只有 ${enabled} 個` });
+  for (const lv of LEVEL_KEYS) {
+    const n = list.filter((d) => d.enabled && TYPE_LEVELS[d.type].includes(lv)).length;
+    if (n < needed) {
+      return res.status(400).json({ ok: false, error: `${LEVELS[lv].label}至少要有 ${needed} 個啟用的機關（${CONFIG.MIN_PLAYERS} 人 × 每人 4 個），目前只有 ${n} 個` });
+    }
   }
   DEVICES = list;
   res.json({ ok: true, ...adminState() });
@@ -306,13 +429,17 @@ app.delete('/api/admin/results', requireAdmin, (_req, res) => {
   res.json({ ok: true, ...adminState() });
 });
 
+// ============================================================
+// 房間與玩家
+// ============================================================
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
-/** @type {Map<string, any>} 房間碼 → 房間 */
+/** @type {Map<string, any>} 船號 → 房間 */
 const rooms = new Map();
 /** 成績紀錄（只存在記憶體，伺服器休眠後清空） */
 const gameLog = [];
+if (process.env.EXPOSE_ROOMS_FOR_TEST) global.__rooms = rooms;
 
 function newPlayer(id, name) {
   return { id, name, devices: [], instruction: null, lastDeviceId: null, requested: 0, helped: 0, mistakes: 0, timeouts: 0, fastestMs: 0, lastPenaltyAt: 0 };
@@ -323,8 +450,9 @@ function createRoom(hostId) {
     code: generateCode(),
     hostId,
     state: 'lobby', // lobby | playing | ended
+    difficulty: 'medium',
     players: new Map(),
-    stability: CONFIG.START_STABILITY,
+    stability: CONFIG.AIR_FULL,
     startedAt: 0,
     endsAt: 0,
     deviceOwner: new Map(), // deviceId → playerId
@@ -333,6 +461,7 @@ function createRoom(hostId) {
     stats: { completed: 0, failed: 0, wrong: 0 },
     timeouts: new Set(),
     tickInterval: null,
+    lastAccidentAt: 0,
     result: null,
   };
   rooms.set(room.code, room);
@@ -358,10 +487,7 @@ function clearAllTimers(room) {
   room.timeouts.clear();
   if (room.tickInterval) clearInterval(room.tickInterval);
   room.tickInterval = null;
-  for (const p of room.players.values()) {
-    if (p.instruction) p.instruction.timer = null;
-    p.instruction = null;
-  }
+  for (const p of room.players.values()) p.instruction = null;
 }
 
 // ---- 廣播 ----
@@ -370,8 +496,10 @@ function publicRoom(room) {
     code: room.code,
     hostId: room.hostId,
     state: room.state,
+    difficulty: room.difficulty,
+    levels: Object.fromEntries(LEVEL_KEYS.map((k) => [k, { label: LEVELS[k].label, maxPlayers: maxPlayersFor(k) }])),
     minPlayers: CONFIG.MIN_PLAYERS,
-    maxPlayers: maxPlayers(),
+    maxPlayers: maxPlayersFor(room.difficulty),
     players: [...room.players.values()].map((p) => ({ id: p.id, name: p.name, isHost: p.id === room.hostId })),
   };
 }
@@ -380,7 +508,14 @@ function emitRoom(room) {
 }
 function deviceView(room, id) {
   const d = room.devMap.get(id);
-  return { id: d.id, name: d.name, type: d.type, action: d.action, value: room.deviceState.get(id) };
+  return {
+    id: d.id,
+    name: d.name,
+    type: d.type,
+    mode: controlMode(room.difficulty, d),
+    value: room.deviceState.get(id),
+    ...(d.options ? { options: d.options } : {}),
+  };
 }
 function setDeviceState(room, deviceId, value, notifyOwner) {
   room.deviceState.set(deviceId, value);
@@ -395,72 +530,104 @@ function setDeviceState(room, deviceId, value, notifyOwner) {
 // ============================================================
 function startGame(room) {
   clearAllTimers(room);
+  const level = room.difficulty;
+  const L = levelOf(room);
   const players = [...room.players.values()];
-  const pool = shuffle(activeDevices().slice());
+  const pool = mixTypes(poolFor(level));
   room.devMap = new Map(pool.map((d) => [d.id, d])); // 本局題庫快照：後台中途修改不影響進行中的遊戲
 
   room.deviceOwner.clear();
   room.deviceState.clear();
-  room.stability = CONFIG.START_STABILITY;
+  room.stability = CONFIG.AIR_FULL;
   room.stats = { completed: 0, failed: 0, wrong: 0 };
   room.result = null;
   room.state = 'playing';
-  room.startedAt = Date.now() + CONFIG.COUNTDOWN_MS; // 倒數結束才算正式開工
+  room.startedAt = Date.now() + CONFIG.COUNTDOWN_MS; // 倒數結束才算正式下潛
   room.endsAt = room.startedAt + CONFIG.GAME_DURATION_MS;
   room.chaos = false;
+  room.lastAccidentAt = 0;
+  room.gameDurationMs = CONFIG.GAME_DURATION_MS;
 
   // 狀態分發：每人 4 個完全不同的機關
   players.forEach((p, i) => {
     const start = i * CONFIG.DEVICES_PER_PLAYER;
-    p.devices = pool.slice(start, start + CONFIG.DEVICES_PER_PLAYER).map((d) => d.id);
-    p.instruction = null;
-    p.lastDeviceId = null;
-    p.requested = 0;
-    p.helped = 0;
-    p.mistakes = 0;
-    p.timeouts = 0;
-    p.fastestMs = 0;
-    p.lastPenaltyAt = 0;
+    Object.assign(p, newPlayer(p.id, p.name), { devices: pool.slice(start, start + CONFIG.DEVICES_PER_PLAYER).map((d) => d.id) });
     for (const id of p.devices) {
       room.deviceOwner.set(id, p.id);
-      const dev = room.devMap.get(id);
-      room.deviceState.set(id, dev.type === 'compass' ? DIRS[Math.floor(Math.random() * 4)] : readyValue(dev));
+      room.deviceState.set(id, initialValue(level, room.devMap.get(id)));
     }
   });
 
   emitRoom(room);
   for (const p of players) {
     io.to(p.id).emit('game:started', {
+      difficulty: level,
+      levelLabel: L.label,
       devices: p.devices.map((id) => deviceView(room, id)),
       stability: room.stability,
-      durationMs: CONFIG.GAME_DURATION_MS,
-      remainingMs: CONFIG.GAME_DURATION_MS,
-      instructionMs: CONFIG.INSTRUCTION_MS,
+      durationMs: room.gameDurationMs,
+      remainingMs: room.gameDurationMs,
       countdownMs: CONFIG.COUNTDOWN_MS,
       sliderMax: SLIDER_MAX,
+      stepMax: STEP_MAX,
     });
   }
 
   // 倒數計時（每秒同步一次）
-  room.tickInterval = setInterval(() => {
-    const remainingMs = Math.max(0, Math.min(CONFIG.GAME_DURATION_MS, room.endsAt - Date.now()));
-    io.to(room.code).emit('game:timer', { remainingMs });
-    const chaosAt = Math.min(CONFIG.CHAOS_MS, CONFIG.GAME_DURATION_MS / 3);
-    if (!room.chaos && remainingMs > 0 && remainingMs <= chaosAt) {
-      room.chaos = true;
-      io.to(room.code).emit('game:chaos', { remainingMs });
-    }
-    if (remainingMs <= 0) endGame(room, 'timeup');
-  }, 1000);
+  room.tickInterval = setInterval(() => tick(room), 1000);
 
   // 錯開配發第一條指令
   players.forEach((p, i) => later(room, () => issueInstruction(room, p.id), CONFIG.COUNTDOWN_MS + 300 + i * CONFIG.START_STAGGER_MS));
 }
 
+/** 洗牌後把不同類型交錯排列，這樣每人分到的 4 個機關盡量是不同種類 */
+function mixTypes(devices) {
+  const buckets = shuffle(Object.values(devices.reduce((acc, d) => ((acc[d.type] = acc[d.type] || []).push(d), acc), {})).map((b) => shuffle(b.slice())));
+  const out = [];
+  while (buckets.some((b) => b.length)) {
+    for (const b of buckets) if (b.length) out.push(b.pop());
+  }
+  return out;
+}
+
+function tick(room) {
+  const L = levelOf(room);
+  const remainingMs = Math.max(0, Math.min(room.gameDurationMs, room.endsAt - Date.now()));
+  io.to(room.code).emit('game:timer', { remainingMs });
+  const chaosAt = Math.min(L.CHAOS_MS, room.gameDurationMs * 0.5);
+  if (!room.chaos && chaosAt > 0 && remainingMs > 0 && remainingMs <= chaosAt) {
+    room.chaos = true;
+    io.to(room.code).emit('game:chaos', { remainingMs, accidents: L.ACCIDENTS });
+  }
+  if (room.chaos && L.ACCIDENTS && remainingMs > 3000 && Date.now() - room.lastAccidentAt >= CONFIG.ACCIDENT_EVERY_MS) {
+    room.lastAccidentAt = Date.now();
+    triggerAccident(room);
+  }
+  if (remainingMs <= 0) endGame(room, 'timeup');
+}
+
+/** 高難度的潛水事故：隨機挑一位玩家 */
+const ACCIDENTS = [
+  { kind: 'fog', ms: 3500, text: '🌫️ 面鏡起霧！什麼都看不清楚', short: '🌫️ 面鏡起霧' },
+  { kind: 'current', ms: 1200, text: '🌊 洋流把你的裝備沖亂了！', short: '🌊 被洋流沖到' },
+  { kind: 'narcosis', ms: 5000, text: '🍸 氮醉了！字都顛倒了', short: '🍸 氮醉' },
+];
+function triggerAccident(room) {
+  const players = [...room.players.values()];
+  if (!players.length) return;
+  const victim = players[Math.floor(Math.random() * players.length)];
+  const acc = ACCIDENTS[Math.floor(Math.random() * ACCIDENTS.length)];
+  io.to(victim.id).emit('accident', acc);
+  for (const p of players) {
+    if (p.id !== victim.id) io.to(p.id).emit('toast', { text: `${acc.short}：${victim.name} 出事了！` });
+  }
+}
+
 /** 依遊戲進度計算這條指令有幾毫秒：從開局秒數線性縮短到結尾秒數 */
 function instructionDuration(room) {
-  const progress = Math.max(0, Math.min(1, (Date.now() - room.startedAt) / CONFIG.GAME_DURATION_MS));
-  const ms = CONFIG.INSTRUCTION_MS - (CONFIG.INSTRUCTION_MS - CONFIG.INSTRUCTION_MIN_MS) * progress;
+  const L = levelOf(room);
+  const progress = Math.max(0, Math.min(1, (Date.now() - room.startedAt) / room.gameDurationMs));
+  const ms = L.INSTRUCTION_MS - (L.INSTRUCTION_MS - L.INSTRUCTION_MIN_MS) * progress;
   return Math.round(ms / 500) * 500;
 }
 
@@ -490,36 +657,20 @@ function issueInstruction(room, playerId) {
   const deviceId = candidates[Math.floor(Math.random() * candidates.length)];
   const dev = room.devMap.get(deviceId);
 
-  // 若機關目前不在待命狀態（例如剛被亂撥），先強制歸位
-  const ready = readyValue(dev);
-  if (ready !== null && room.deviceState.get(deviceId) !== ready) setDeviceState(room, deviceId, ready, true);
-
-  let target = dev.target;
-  let text = dev.instruction;
-  if (dev.type === 'compass') {
-    const options = DIRS.filter((d) => d !== room.deviceState.get(deviceId));
-    target = options[Math.floor(Math.random() * options.length)];
-    text = `把${dev.name}轉到${DIR_NAME[target]}！`;
+  // 低難度的固定目標：若機關不在待命狀態（例如剛被亂撥），先強制歸位
+  if (room.difficulty === 'easy') {
+    const ready = readyValue(dev);
+    if (ready !== null && room.deviceState.get(deviceId) !== ready) setDeviceState(room, deviceId, ready, true);
   }
-  const instruction = {
-    deviceId,
-    target,
-    text,
-    issuedAt: Date.now(),
-    expiresAt: 0,
-    timer: null,
-  };
+
+  const { target, text } = buildInstruction(room.difficulty, dev, room.deviceState.get(deviceId));
   const durationMs = instructionDuration(room);
-  instruction.expiresAt = Date.now() + durationMs;
+  const instruction = { deviceId, target, text, issuedAt: Date.now(), expiresAt: Date.now() + durationMs, timer: null };
   instruction.timer = later(room, () => onInstructionTimeout(room, player.id, instruction), durationMs);
   player.instruction = instruction;
   player.lastDeviceId = deviceId;
 
-  io.to(player.id).emit('instruction:new', {
-    text,
-    deviceName: dev.name,
-    durationMs,
-  });
+  io.to(player.id).emit('instruction:new', { text, deviceName: dev.name, durationMs });
 }
 
 function onInstructionTimeout(room, playerId, instruction) {
@@ -529,7 +680,7 @@ function onInstructionTimeout(room, playerId, instruction) {
   player.timeouts++;
   room.stats.failed++;
   io.to(player.id).emit('instruction:failed', { text: instruction.text });
-  changeStability(room, -CONFIG.TIMEOUT_PENALTY, 'timeout', player.name);
+  changeStability(room, -levelOf(room).TIMEOUT_PENALTY, 'timeout', player.name);
   if (room.state === 'playing') later(room, () => issueInstruction(room, player.id), CONFIG.NEXT_INSTRUCTION_DELAY_MS);
 }
 
@@ -538,7 +689,7 @@ function handleOperate(room, operator, deviceId, rawValue) {
   const dev = room.devMap.get(deviceId);
   if (!dev || room.deviceOwner.get(deviceId) !== operator.id) return; // 只能操作自己畫面上的機關
 
-  const value = normalizeValue(dev, rawValue);
+  const value = normalizeValue(room.difficulty, dev, rawValue);
   if (value === null) return;
   if (dev.type !== 'button') room.deviceState.set(deviceId, value);
 
@@ -562,22 +713,24 @@ function handleOperate(room, operator, deviceId, rawValue) {
     room.stats.completed++;
     io.to(requester.id).emit('instruction:success', { byName: operator.name, deviceName: dev.name });
     io.to(operator.id).emit('operate:result', { deviceId, ok: true, forName: requester.name });
-    changeStability(room, CONFIG.SUCCESS_BONUS, 'success', operator.name);
+    changeStability(room, levelOf(room).SUCCESS_BONUS, 'success', operator.name);
 
-    const ready = readyValue(dev);
-    if (ready !== null) {
-      later(room, () => {
-        if (room.state !== 'playing' || !room.deviceOwner.has(deviceId)) return;
-        const busy = [...room.players.values()].some((p) => p.instruction && p.instruction.deviceId === deviceId);
-        if (!busy) setDeviceState(room, deviceId, ready, true);
-      }, CONFIG.RESET_DELAY_MS);
+    if (room.difficulty === 'easy') {
+      const ready = readyValue(dev);
+      if (ready !== null) {
+        later(room, () => {
+          if (room.state !== 'playing' || !room.deviceOwner.has(deviceId)) return;
+          const busy = [...room.players.values()].some((p) => p.instruction && p.instruction.deviceId === deviceId);
+          if (!busy) setDeviceState(room, deviceId, ready, true);
+        }, CONFIG.RESET_DELAY_MS);
+      }
     }
     later(room, () => issueInstruction(room, requester.id), CONFIG.NEXT_INSTRUCTION_DELAY_MS);
     return;
   }
 
   if (requester) {
-    // 有人要求這個機關，但狀態還沒到位（例如滑桿推到一半）→ 不扣分，讓玩家繼續調整
+    // 有人要求這個機關，但狀態還沒到位（或按法不對）→ 不扣氣，讓玩家繼續調整
     io.to(operator.id).emit('operate:result', { deviceId, ok: null });
     return;
   }
@@ -585,37 +738,33 @@ function handleOperate(room, operator, deviceId, rawValue) {
   // ❌ 沒人要求這個機關 → 扣全隊氣瓶壓力
   io.to(operator.id).emit('operate:result', { deviceId, ok: false });
   const now = Date.now();
-  if (now - operator.lastPenaltyAt < CONFIG.WRONG_COOLDOWN_MS) return; // 冷卻中：只有畫面抖動，不重複扣分
+  if (now - operator.lastPenaltyAt < CONFIG.WRONG_COOLDOWN_MS) return; // 冷卻中：只有畫面抖動，不重複扣氣
   operator.lastPenaltyAt = now;
   operator.mistakes++;
   room.stats.wrong++;
-  changeStability(room, -CONFIG.WRONG_PENALTY, 'wrong', operator.name);
+  changeStability(room, -levelOf(room).WRONG_PENALTY, 'wrong', operator.name);
 }
 
 function changeStability(room, delta, reason, byName) {
   if (room.state !== 'playing') return;
   const before = room.stability;
-  room.stability = Math.max(CONFIG.AIR_EMPTY, Math.min(CONFIG.START_STABILITY, room.stability + delta));
-  io.to(room.code).emit('stability:update', {
-    stability: room.stability,
-    delta: room.stability - before,
-    reason,
-    byName,
-  });
+  room.stability = Math.max(CONFIG.AIR_EMPTY, Math.min(CONFIG.AIR_FULL, room.stability + delta));
+  io.to(room.code).emit('stability:update', { stability: room.stability, delta: room.stability - before, reason, byName });
   if (room.stability <= CONFIG.AIR_EMPTY) endGame(room, 'collapse');
 }
 
 // ============================================================
-// 結算稱號：每位玩家都拿一個（越滑稽越好）
+// 結算稱號：每位玩家都拿一個（越滑稽越好；部分稱號隨難度升級）
 // ============================================================
+const byLevel = (easy, medium, hard) => (level) => ({ easy, medium, hard }[level] || medium);
 const AWARDS = [
-  { ok: (p) => p.helped > 0, score: (p) => p.helped, title: '🐬 人肉水下推進器', why: (p) => `幫潛伴完成 ${p.helped} 條指令，比 DPV 還好用` },
-  { ok: (p) => p.mistakes > 0, score: (p) => p.mistakes, title: '🐡 一碰就爆的河豚', why: (p) => `亂按 ${p.mistakes} 次，整片海都被你搞瘋了` },
-  { ok: (p) => p.fastestMs > 0, score: (p) => -p.fastestMs, title: '⚡ 閃電鬼蝠魟', why: (p) => `最快 ${(p.fastestMs / 1000).toFixed(1)} 秒就搞定，手速快到起水泡` },
-  { ok: (p) => p.timeouts > 0, score: (p) => p.timeouts, title: '📣 喊破喉嚨的水下大聲公', why: (p) => `${p.timeouts} 條指令沒人理，建議改用水下寫字板` },
-  { ok: (p) => p.helped === 0 && p.mistakes === 0, score: () => 0, title: '🪨 海底裝死的石頭魚', why: () => '全場一動也不動，偽裝技術滿分' },
-  { ok: (p) => p.mistakes === 0, score: (p) => p.helped, title: '🧘 中性浮力之神', why: () => '零失誤，穩到可以在水裡打坐' },
-  { ok: (p) => p.requested > 0, score: (p) => p.requested, title: '👑 被潛伴服侍的海洋女王', why: (p) => `${p.requested} 條指令都有人搶著幫你做，命真好` },
+  { ok: (p) => p.helped > 0, score: (p) => p.helped, title: byLevel('🐠 熱心過頭的觀光潛水員', '🐬 人肉水下推進器', '🦈 技術潛水界的鯨鯊'), why: (p) => `幫潛伴完成 ${p.helped} 條指令，比 DPV 還好用` },
+  { ok: (p) => p.mistakes > 0, score: (p) => p.mistakes, title: byLevel('🎈 浮力失控的小氣球', '🐡 一碰就爆的河豚', '💣 氮醉亂按的人形炸彈'), why: (p) => `亂按 ${p.mistakes} 次，整片海都被你搞瘋了` },
+  { ok: (p) => p.fastestMs > 0, score: (p) => -p.fastestMs, title: byLevel('🐟 動作還算快的小丑魚', '⚡ 閃電鬼蝠魟', '🚀 人體水下推進器 Pro Max'), why: (p) => `最快 ${(p.fastestMs / 1000).toFixed(1)} 秒就搞定，手速快到起水泡` },
+  { ok: (p) => p.timeouts > 0, score: (p) => p.timeouts, title: byLevel('📣 水下大聲公', '📣 喊破喉嚨的水下大聲公', '📡 聲納壞掉的潛艇'), why: (p) => `${p.timeouts} 條指令沒人理，建議改用水下寫字板` },
+  { ok: (p) => p.helped === 0 && p.mistakes === 0, score: () => 0, title: byLevel('🪨 海底裝死的石頭魚', '🪨 海底裝死的石頭魚', '🪨 千年不動的海底化石'), why: () => '全場一動也不動，偽裝技術滿分' },
+  { ok: (p) => p.mistakes === 0, score: (p) => p.helped, title: byLevel('🧘 中性浮力新手', '🧘 中性浮力之神', '🧘 技術潛水宗師'), why: () => '零失誤，穩到可以在水裡打坐' },
+  { ok: (p) => p.requested > 0, score: (p) => p.requested, title: byLevel('👑 被服侍的海洋公主', '👑 被潛伴服侍的海洋女王', '👑 深海霸主（只會出一張嘴）'), why: (p) => `${p.requested} 條指令都有人搶著幫你做，命真好` },
 ];
 const FALLBACK_TITLES = [
   ['🐢 被海龜超車的潛水員', '游得比海龜還慢，海龜回頭看了你一眼'],
@@ -632,15 +781,14 @@ const FALLBACK_TITLES = [
   ['🦈 假裝很兇的豆丁鯊', '氣勢很足，實力很迷你'],
 ];
 
-function assignTitles(players) {
-  const pool = shuffle(players.slice()); // 同分時隨機
-  const left = new Set(pool);
+function assignTitles(players, level) {
+  const left = new Set(shuffle(players.slice())); // 同分時隨機
   for (const award of AWARDS) {
     if (!left.size) break;
     const cands = [...left].filter(award.ok);
     if (!cands.length) continue;
     const best = cands.reduce((a, b) => (award.score(b) > award.score(a) ? b : a));
-    best.title = award.title;
+    best.title = award.title(level);
     best.titleWhy = award.why(best);
     left.delete(best);
   }
@@ -657,7 +805,7 @@ function endGame(room, reason) {
   room.state = 'ended';
   clearAllTimers(room);
 
-  const survivedMs = Math.max(0, Math.min(CONFIG.GAME_DURATION_MS, Date.now() - room.startedAt));
+  const survivedMs = Math.max(0, Math.min(room.gameDurationMs, Date.now() - room.startedAt));
   const s = room.stats;
   let rank;
   if (reason === 'collapse') rank = '🆘 被教練拎上船的菜鳥團';
@@ -666,25 +814,30 @@ function endGame(room, reason) {
   else if (room.stability >= 40) rank = '🤿 體驗潛水觀光團';
   else rank = '🫧 差點吸到空氣的冒險團';
 
+  const players = [...room.players.values()]
+    .map((p) => ({ id: p.id, name: p.name, helped: p.helped, requested: p.requested, mistakes: p.mistakes, timeouts: p.timeouts, fastestMs: p.fastestMs }))
+    .sort((a, b) => b.helped - a.helped || a.mistakes - b.mistakes);
+  assignTitles(players, room.difficulty);
+
   room.result = {
     reason, // timeup | collapse | notEnough
     rank,
+    difficulty: room.difficulty,
+    levelLabel: levelOf(room).label,
     stability: room.stability,
     survivedMs,
     completed: s.completed,
     failed: s.failed,
     wrong: s.wrong,
-    players: [...room.players.values()]
-      .map((p) => ({ id: p.id, name: p.name, helped: p.helped, requested: p.requested, mistakes: p.mistakes, timeouts: p.timeouts, fastestMs: p.fastestMs }))
-      .sort((a, b) => b.helped - a.helped || a.mistakes - b.mistakes),
+    players,
   };
-  assignTitles(room.result.players);
   io.to(room.code).emit('game:over', room.result);
   gameLog.unshift({
     time: new Date().toISOString(),
     code: room.code,
+    difficulty: room.difficulty,
     playerCount: room.players.size,
-    names: room.result.players.map((p) => p.name),
+    names: players.map((p) => p.name),
     reason,
     rank,
     completed: s.completed,
@@ -702,7 +855,7 @@ function backToLobby(room) {
   room.state = 'lobby';
   room.deviceOwner.clear();
   room.deviceState.clear();
-  room.stability = CONFIG.START_STABILITY;
+  room.stability = CONFIG.AIR_FULL;
   for (const p of room.players.values()) p.devices = [];
   emitRoom(room);
 }
@@ -770,7 +923,7 @@ io.on('connection', (socket) => {
     const room = rooms.get(code);
     if (!room) return reply(ack, { ok: false, error: '找不到這艘船，請確認船號' });
     if (room.state !== 'lobby') return reply(ack, { ok: false, error: '這團已經下水了，請等下一潛' });
-    if (room.players.size >= maxPlayers()) return reply(ack, { ok: false, error: `船已經坐滿了（最多 ${maxPlayers()} 人）` });
+    if (room.players.size >= CONFIG.MAX_PLAYERS) return reply(ack, { ok: false, error: `船已經坐滿了（最多 ${CONFIG.MAX_PLAYERS} 人）` });
 
     removePlayer(socket);
     let name = cleanName(payload && payload.name);
@@ -789,6 +942,17 @@ io.on('connection', (socket) => {
 
   socket.on('room:leave', () => removePlayer(socket));
 
+  // 船長選難度
+  socket.on('room:difficulty', (payload, ack) => {
+    const room = myRoom();
+    const level = payload && payload.level;
+    if (!room || room.hostId !== socket.id || room.state !== 'lobby') return reply(ack, { ok: false, error: '只有船長可以選難度' });
+    if (!LEVELS[level]) return reply(ack, { ok: false, error: '沒有這個難度' });
+    room.difficulty = level;
+    reply(ack, { ok: true });
+    emitRoom(room);
+  });
+
   socket.on('game:start', (_payload, ack) => {
     const room = myRoom();
     if (!room) return reply(ack, { ok: false, error: '你不在任何一艘船上' });
@@ -797,8 +961,8 @@ io.on('connection', (socket) => {
     if (room.players.size < CONFIG.MIN_PLAYERS) {
       return reply(ack, { ok: false, error: `至少需要 ${CONFIG.MIN_PLAYERS} 位潛伴才能下水` });
     }
-    if (room.players.size > maxPlayers()) {
-      return reply(ack, { ok: false, error: `題庫啟用的機關只夠 ${maxPlayers()} 人玩，請主持人到後台多啟用幾個` });
+    if (room.players.size > maxPlayersFor(room.difficulty)) {
+      return reply(ack, { ok: false, error: `${LEVELS[room.difficulty].label}的機關只夠 ${maxPlayersFor(room.difficulty)} 人玩，請換難度或請主持人到後台多啟用幾個` });
     }
     reply(ack, { ok: true });
     startGame(room);
@@ -813,7 +977,7 @@ io.on('connection', (socket) => {
     handleOperate(room, operator, String(payload.deviceId), payload.value);
   });
 
-  // 結算後回大廳（房主）
+  // 結算後回大廳（船長）
   socket.on('game:lobby', () => {
     const room = myRoom();
     if (room && room.hostId === socket.id && room.state === 'ended') backToLobby(room);

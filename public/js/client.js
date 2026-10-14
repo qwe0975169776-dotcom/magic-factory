@@ -11,12 +11,14 @@
   const AIR_EMPTY = 20;
   const LOW_AIR = 50;
   const DIRS = ['N', 'E', 'S', 'W'];
-  const DIR_NAME = { N: '北', E: '東', S: '南', W: '西' };
+  const DIR_NAME = { N: '北', NE: '東北', E: '東', SE: '東南', S: '南', SW: '西南', W: '西', NW: '西北' };
 
   const state = {
     room: null,
     screen: 'home',
     sliderMax: 4,
+    stepMax: 10,
+    level: 'medium',
     timerEnd: 0,                                // performance.now() 基準的結束時間
     instr: { active: false, start: 0, duration: 15000 },
     stability: AIR_FULL,
@@ -233,6 +235,14 @@
       </li>`).join('');
 
     const isHost = r.hostId === socket.id;
+    const picker = $('diff-picker');
+    picker.classList.toggle('readonly', !isHost);
+    picker.querySelectorAll('.diff').forEach((b) => {
+      b.setAttribute('aria-checked', String(b.dataset.level === r.difficulty));
+      b.disabled = !isHost;
+    });
+    const lv = r.levels && r.levels[r.difficulty];
+    $('diff-note').textContent = isHost ? '船長點選切換' : `船長選了 ${lv ? lv.label : ''}`;
     const enough = r.players.length >= r.minPlayers;
     const btn = $('btn-start');
     btn.classList.toggle('hidden', !isHost);
@@ -241,6 +251,13 @@
       ? `還差 ${r.minPlayers - r.players.length} 位潛伴才能下水（至少 ${r.minPlayers} 人）`
       : isHost ? '潛伴到齊！檢查裝備，準備下潛' : '等待船長宣布下潛……';
   }
+
+  $('diff-picker').addEventListener('click', (e) => {
+    const b = e.target.closest('.diff');
+    if (!b || b.disabled) return;
+    sfx.click();
+    socket.emit('room:difficulty', { level: b.dataset.level }, (res) => { if (!res.ok) toast(res.error); });
+  });
 
   $('btn-start').addEventListener('click', () => {
     socket.emit('game:start', null, (res) => { if (!res.ok) toast(res.error); });
@@ -262,67 +279,132 @@
   });
 
   // ---------------------------------------------------------
-  // 遊戲：機關生成
+  // 遊戲：機關生成（依難度畫出不同的控制元件）
   // ---------------------------------------------------------
   const devices = new Map(); // id → { data, el, angle }
+  const DIR8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const TRI_LABEL = ['關', '半開', '全開'];
 
   function operate(id, value) {
     socket.emit('device:operate', { deviceId: id, value });
+  }
+
+  // 連續調整型（刻度、選擇器）：停手 0.6 秒後才送出，避免中途數值被當成亂按
+  function debounceOperate(entry, value) {
+    clearTimeout(entry.sendTimer);
+    entry.sendTimer = setTimeout(() => operate(entry.data.id, value), 600);
+  }
+
+  function controlHtml(d) {
+    const label = esc(d.name);
+    switch (d.mode) {
+      case 'tap':
+      case 'gesture':
+        return `<button type="button" class="magic-btn" aria-label="${label}"><span class="magic-btn-core"></span><span class="hold-ring"></span></button>`;
+      case 'twoWay':
+        return `<button type="button" class="lever" role="switch" aria-checked="false" aria-label="${label}">
+                  <span class="lever-track"><span class="lever-knob"></span></span>
+                  <span class="lever-labels"><b>關</b><b>開</b></span>
+                </button>`;
+      case 'threeWay':
+        return `<div class="tri" role="radiogroup" aria-label="${label}"><span class="tri-knob"></span>
+                  ${TRI_LABEL.map((t, i) => `<button type="button" data-v="${i}" aria-pressed="false">${t}</button>`).join('')}
+                </div>`;
+      case 'range5':
+        return `<div class="slider-wrap">
+                  <input type="range" class="magic-range" min="0" max="${state.sliderMax}" step="1" value="0" aria-label="${label}">
+                  <div class="slider-ticks"><span>底</span><span>▪</span><span>中</span><span>▪</span><span>頂</span></div>
+                </div>`;
+      case 'step10':
+        return `<div class="stepper" aria-label="${label}">
+                  <div class="stepper-row"><button type="button" data-step="-1" aria-label="減少">−</button>
+                  <span class="step-val">0</span>
+                  <button type="button" data-step="1" aria-label="增加">＋</button></div>
+                  <div class="ticks">${'<i></i>'.repeat(state.stepMax + 1)}</div>
+                </div>`;
+      case 'dir4':
+      case 'dir8': {
+        const dirs = d.mode === 'dir8' ? DIR8 : DIRS;
+        return `<div class="compass ${d.mode}" role="slider" aria-label="${label}">
+                  ${dirs.map((k) => `<b data-d="${k}">${DIR_NAME[k]}</b>`).join('')}
+                  <span class="needle"></span><span class="hub"></span>
+                </div>`;
+      }
+      case 'options':
+        return `<div class="selector" aria-label="${label}">
+                  <div class="selector-row"><button type="button" class="arrow" data-step="-1" aria-label="上一個">◀</button>
+                  <span class="knob"></span>
+                  <button type="button" class="arrow" data-step="1" aria-label="下一個">▶</button></div>
+                  <span class="opt"></span>
+                  <span class="opt-list">${d.options.map(() => '<i></i>').join('')}</span>
+                </div>`;
+      default:
+        return '';
+    }
   }
 
   function createDevice(d) {
     const el = document.createElement('div');
     el.className = `device device-${d.type}`;
     el.dataset.id = d.id;
-    let body = '';
-    if (d.type === 'button') {
-      body = `<button type="button" class="magic-btn" aria-label="${esc(d.name)}"><span class="magic-btn-core"></span></button>`;
-    } else if (d.type === 'switch') {
-      body = `<button type="button" class="lever" role="switch" aria-checked="false" aria-label="${esc(d.name)}">
-                <span class="lever-track"><span class="lever-knob"></span></span>
-                <span class="lever-labels"><b>關</b><b>開</b></span>
-              </button>`;
-    } else if (d.type === 'slider') {
-      body = `<div class="slider-wrap">
-                <input type="range" class="magic-range" min="0" max="${state.sliderMax}" step="1" value="0" aria-label="${esc(d.name)}">
-                <div class="slider-ticks"><span>底</span><span>▪</span><span>中</span><span>▪</span><span>頂</span></div>
-              </div>`;
-    } else {
-      body = `<div class="compass" role="slider" aria-label="${esc(d.name)}">
-                ${DIRS.map((k) => `<b data-d="${k}">${DIR_NAME[k]}</b>`).join('')}
-                <span class="needle"></span><span class="hub"></span>
-              </div>`;
-    }
-    el.innerHTML = `<div class="device-plate">${esc(d.name)}</div><div class="device-body">${body}</div>`;
-    const entry = { data: d, el, angle: 0 };
+    el.innerHTML = `<div class="device-plate">${esc(d.name)}</div><div class="device-body">${controlHtml(d)}</div>`;
+    const entry = { data: d, el, angle: 0, sendTimer: null };
     devices.set(d.id, entry);
 
-    if (d.type === 'button') {
-      const btn = el.querySelector('.magic-btn');
-      btn.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        btn.classList.add('is-pressed');
-        sfx.click();
-        operate(d.id, 'press');
-      });
-      const release = () => setTimeout(() => btn.classList.remove('is-pressed'), 120);
-      btn.addEventListener('pointerup', release);
-      btn.addEventListener('pointerleave', release);
-      btn.addEventListener('pointercancel', release);
-    } else if (d.type === 'switch') {
-      const lever = el.querySelector('.lever');
-      lever.addEventListener('click', () => {
-        const next = lever.getAttribute('aria-checked') === 'true' ? 'off' : 'on';
-        setDeviceValue(d.id, next);
-        sfx.click();
-        operate(d.id, next);
-      });
-    } else if (d.type === 'slider') {
-      const range = el.querySelector('.magic-range');
-      range.addEventListener('input', () => paintRange(range));
-      range.addEventListener('change', () => { sfx.click(); operate(d.id, Number(range.value)); });
-    } else {
-      bindCompass(entry);
+    switch (d.mode) {
+      case 'tap': bindTap(entry); break;
+      case 'gesture': bindGesture(entry); break;
+      case 'twoWay': {
+        const lever = el.querySelector('.lever');
+        lever.addEventListener('click', () => {
+          const next = lever.getAttribute('aria-checked') === 'true' ? 'off' : 'on';
+          setDeviceValue(d.id, next);
+          sfx.click();
+          operate(d.id, next);
+        });
+        break;
+      }
+      case 'threeWay':
+        el.querySelectorAll('.tri button').forEach((b) => b.addEventListener('click', () => {
+          const v = Number(b.dataset.v);
+          if (v === entry.data.value) return;
+          setDeviceValue(d.id, v);
+          sfx.click();
+          operate(d.id, v);
+        }));
+        break;
+      case 'range5': {
+        const range = el.querySelector('.magic-range');
+        range.addEventListener('input', () => paintRange(range));
+        range.addEventListener('change', () => { sfx.click(); operate(d.id, Number(range.value)); });
+        break;
+      }
+      case 'step10':
+        el.querySelectorAll('.stepper button').forEach((b) => b.addEventListener('click', () => {
+          const v = Math.max(0, Math.min(state.stepMax, entry.data.value + Number(b.dataset.step)));
+          if (v === entry.data.value) return;
+          setDeviceValue(d.id, v);
+          sfx.click();
+          debounceOperate(entry, v);
+        }));
+        break;
+      case 'dir4':
+      case 'dir8':
+        bindCompass(entry, d.mode === 'dir8' ? DIR8 : DIRS);
+        break;
+      case 'options': {
+        const n = d.options.length;
+        const step = (k) => {
+          const v = (entry.data.value + k + n) % n;
+          setDeviceValue(d.id, v);
+          sfx.click();
+          debounceOperate(entry, v);
+        };
+        el.querySelectorAll('.selector .arrow').forEach((b) => b.addEventListener('click', () => step(Number(b.dataset.step))));
+        el.querySelector('.knob').addEventListener('click', () => step(1));
+        break;
+      }
+      default: break;
     }
 
     el.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -330,9 +412,80 @@
     return el;
   }
 
-  // 指北針：拖曳指針轉方向（放開時吸附到最近的方位），輕點則順時針轉 90°
-  function bindCompass(entry) {
+  function bindTap(entry) {
+    const btn = entry.el.querySelector('.magic-btn');
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      btn.classList.add('is-pressed');
+      sfx.click();
+      operate(entry.data.id, 'press');
+    });
+    const release = () => setTimeout(() => btn.classList.remove('is-pressed'), 120);
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => btn.addEventListener(ev, release));
+  }
+
+  // 高難度按鈕：按一下、連按（停手 0.45 秒後判定次數）、長按 1.5 秒
+  function bindGesture(entry) {
+    const btn = entry.el.querySelector('.magic-btn');
+    const HOLD_MS = 1500;
+    let taps = 0, decideTimer = null, downAt = 0, raf = 0, holdDone = false, badge = null;
+    const showCount = () => {
+      if (!badge) { badge = document.createElement('span'); badge.className = 'tap-count'; entry.el.appendChild(badge); }
+      badge.textContent = `×${taps}`;
+      retrigger(badge, 'tap-count');
+    };
+    const clearBadge = () => { if (badge) badge.remove(); badge = null; };
+    const fillRing = () => {
+      const p = Math.min(1, (performance.now() - downAt) / HOLD_MS);
+      btn.style.setProperty('--p', p);
+      if (p >= 1 && !holdDone) {
+        holdDone = true;
+        btn.classList.remove('holding');
+        sfx.helped();
+        if (navigator.vibrate) navigator.vibrate(40);
+        clearTimeout(decideTimer);
+        taps = 0;
+        clearBadge();
+        operate(entry.data.id, 'hold');
+        return;
+      }
+      if (!holdDone) raf = requestAnimationFrame(fillRing);
+    };
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      btn.setPointerCapture(e.pointerId);
+      btn.classList.add('is-pressed', 'holding');
+      sfx.click();
+      downAt = performance.now();
+      holdDone = false;
+      clearTimeout(decideTimer);
+      raf = requestAnimationFrame(fillRing);
+    });
+    const up = () => {
+      if (!downAt) return;
+      cancelAnimationFrame(raf);
+      downAt = 0;
+      btn.classList.remove('is-pressed', 'holding');
+      btn.style.setProperty('--p', 0);
+      if (holdDone) return;
+      taps++;
+      if (taps > 1) showCount();
+      clearTimeout(decideTimer);
+      decideTimer = setTimeout(() => {
+        const v = taps >= 3 ? 'triple' : taps === 2 ? 'double' : 'press';
+        taps = 0;
+        setTimeout(clearBadge, 300);
+        operate(entry.data.id, v);
+      }, 450);
+    };
+    btn.addEventListener('pointerup', up);
+    btn.addEventListener('pointercancel', up);
+  }
+
+  // 指北針：拖曳指針轉方向（放開時吸附到最近的方位），輕點則順時針轉一格
+  function bindCompass(entry, dirs) {
     const dial = entry.el.querySelector('.compass');
+    const stepDeg = 360 / dirs.length;
     let drag = null;
     const angleAt = (e) => {
       const r = dial.getBoundingClientRect();
@@ -353,20 +506,18 @@
       entry.angle = nearestEquivalent(entry.angle, angleAt(e));
       dial.style.setProperty('--deg', `${entry.angle}deg`);
     });
-    const finish = (e) => {
+    dial.addEventListener('pointerup', (e) => {
       if (!drag) return;
       const wasDrag = drag.moved;
       drag = null;
       dial.classList.remove('dragging');
       const before = entry.data.value;
-      let next;
-      if (wasDrag) next = DIRS[((Math.round(angleAt(e) / 90) % 4) + 4) % 4];
-      else next = DIRS[(DIRS.indexOf(before) + 1) % 4];
+      const n = dirs.length;
+      const next = wasDrag ? dirs[((Math.round(angleAt(e) / stepDeg) % n) + n) % n] : dirs[(dirs.indexOf(before) + 1) % n];
       setDeviceValue(entry.data.id, next);
       if (next !== before) { sfx.click(); operate(entry.data.id, next); }
-    };
-    dial.addEventListener('pointerup', finish);
-    dial.addEventListener('pointercancel', (e) => { drag = null; dial.classList.remove('dragging'); setDeviceValue(entry.data.id, entry.data.value); });
+    });
+    dial.addEventListener('pointercancel', () => { drag = null; dial.classList.remove('dragging'); setDeviceValue(entry.data.id, entry.data.value); });
   }
 
   // 找與 current 最接近、和 target 同方向的角度，避免指針繞遠路轉一大圈
@@ -382,18 +533,46 @@
     const dv = devices.get(id);
     if (!dv) return;
     dv.data.value = value;
-    if (dv.data.type === 'switch') {
-      dv.el.querySelector('.lever').setAttribute('aria-checked', value === 'on' ? 'true' : 'false');
-    } else if (dv.data.type === 'slider') {
-      const range = dv.el.querySelector('.magic-range');
-      range.value = value;
-      paintRange(range);
-    } else if (dv.data.type === 'compass') {
-      const dial = dv.el.querySelector('.compass');
-      dv.angle = nearestEquivalent(dv.angle, DIRS.indexOf(value) * 90);
-      dial.style.setProperty('--deg', `${dv.angle}deg`);
-      dial.setAttribute('aria-valuetext', DIR_NAME[value] || '');
-      dial.querySelectorAll('b').forEach((b) => b.classList.toggle('on', b.dataset.d === value));
+    const el = dv.el;
+    switch (dv.data.mode) {
+      case 'twoWay':
+        el.querySelector('.lever').setAttribute('aria-checked', value === 'on' ? 'true' : 'false');
+        break;
+      case 'threeWay': {
+        const tri = el.querySelector('.tri');
+        tri.dataset.v = value;
+        tri.style.setProperty('--v', value);
+        tri.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.v) === value)));
+        break;
+      }
+      case 'range5': {
+        const range = el.querySelector('.magic-range');
+        range.value = value;
+        paintRange(range);
+        break;
+      }
+      case 'step10':
+        el.querySelector('.step-val').textContent = value;
+        el.querySelectorAll('.ticks i').forEach((t, i) => t.classList.toggle('on', i <= value));
+        break;
+      case 'dir4':
+      case 'dir8': {
+        const dirs = dv.data.mode === 'dir8' ? DIR8 : DIRS;
+        const dial = el.querySelector('.compass');
+        dv.angle = nearestEquivalent(dv.angle, dirs.indexOf(value) * (360 / dirs.length));
+        dial.style.setProperty('--deg', `${dv.angle}deg`);
+        dial.setAttribute('aria-valuetext', DIR_NAME[value] || '');
+        dial.querySelectorAll('b').forEach((b) => b.classList.toggle('on', b.dataset.d === value));
+        break;
+      }
+      case 'options': {
+        const n = dv.data.options.length;
+        el.querySelector('.opt').textContent = dv.data.options[value];
+        el.querySelector('.knob').style.setProperty('--deg', `${-120 + (240 / Math.max(1, n - 1)) * value}deg`);
+        el.querySelectorAll('.opt-list i').forEach((t, i) => t.classList.toggle('on', i === value));
+        break;
+      }
+      default: break;
     }
   }
 
@@ -493,6 +672,11 @@
 
   socket.on('game:started', (g) => {
     state.sliderMax = g.sliderMax || 4;
+    state.stepMax = g.stepMax || 10;
+    state.level = g.difficulty || 'medium';
+    $('level-chip').textContent = g.levelLabel || '';
+    accidentTimers.forEach(clearTimeout);
+    $('app').classList.remove('fog', 'narc');
     state.timerEnd = performance.now() + g.remainingMs;
     state.lowAirWarned = false;
     devices.clear();
@@ -521,7 +705,13 @@
     if (ins.none) return setInstruction(esc(ins.text), { muted: true });
     let html = esc(ins.text);
     if (ins.deviceName) html = html.split(esc(ins.deviceName)).join(`<span class="dev-name">${esc(ins.deviceName)}</span>`);
-    html = html.replace(/轉到(北|東|南|西)/, '轉到<span class="dir">$1</span>');
+    html = html
+      .replace(/轉到(東北|東南|西北|西南|北|東|南|西)！/, '轉到<span class="act">$1</span>！')
+      .replace(/「(.+?)」/, '「<span class="act">$1</span>」')
+      .replace(/調到 (\d+)！/, '調到 <span class="act">$1</span>！')
+      .replace(/^把(.+?)(關掉|調到半開|全開)！$/, '把$1<span class="act">$2</span>！')
+      .replace(/^(連按三下|長按)/, '<span class="act">$1</span>')
+      .replace(/(兩秒)！$/, '<span class="act">$1</span>！');
     setInstruction(html, { timed: true, duration: ins.durationMs });
     sfx.newInstr();
   });
@@ -554,13 +744,38 @@
       if (old) old.remove();
       const hint = document.createElement('span');
       hint.className = 'hint';
-      hint.textContent = '還沒到位！';
+      hint.textContent = dv.data.type === 'button' ? '按法不對！' : '還沒到位！';
       dv.el.appendChild(hint);
       setTimeout(() => hint.remove(), 1500);
     }
   });
 
   socket.on('device:state', ({ deviceId, value }) => setDeviceValue(deviceId, value));
+
+  // 高難度：潛水事故
+  let accidentTimers = [];
+  socket.on('accident', ({ kind, ms, text }) => {
+    if (state.screen !== 'game') return;
+    toast(text);
+    sweep(900, 200, 0, 0.6, 'sine', 0.12);
+    sweep(950, 180, 0.05, 0.6, 'sine', 0.08);
+    if (navigator.vibrate) navigator.vibrate([60, 30, 60]);
+    if (kind === 'fog' || kind === 'narcosis') {
+      const cls = kind === 'fog' ? 'fog' : 'narc';
+      $('app').classList.add(cls);
+      accidentTimers.push(setTimeout(() => $('app').classList.remove(cls), ms));
+    } else if (kind === 'current') {
+      const panel = $('panel');
+      const kids = [...panel.children];
+      for (let i = kids.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [kids[i], kids[j]] = [kids[j], kids[i]];
+      }
+      kids.forEach((k) => panel.appendChild(k));
+      retrigger(panel, 'swirl');
+      accidentTimers.push(setTimeout(() => panel.classList.remove('swirl'), ms));
+    }
+  });
 
   socket.on('stability:update', ({ stability, delta, reason, byName }) => {
     setStability(stability);
@@ -577,13 +792,14 @@
     state.instr.active = false;
     countdownTimers.forEach(clearTimeout);
     $('countdown').classList.add('hidden');
-    $('app').classList.remove('locked', 'chaos', 'low-air');
+    $('app').classList.remove('locked', 'chaos', 'low-air', 'fog', 'narc');
+    accidentTimers.forEach(clearTimeout);
     const reasons = {
       timeup: '⏰ 潛水時間到！全員平安回到船上',
       collapse: '🫧 氣瓶只剩 20 bar！全員緊急上升',
       notEnough: '😶 潛伴都游走了，只好收隊',
     };
-    $('result-reason').textContent = reasons[r.reason] || '';
+    $('result-reason').textContent = `${r.levelLabel ? r.levelLabel + '｜' : ''}${reasons[r.reason] || ''}`;
     $('result-rank').textContent = r.rank;
     $('result-completed').textContent = r.completed;
     $('result-failed').textContent = r.failed;

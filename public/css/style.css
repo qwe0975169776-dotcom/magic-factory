@@ -342,6 +342,112 @@ input { user-select: text; -webkit-user-select: text; }
 .award.pop-in { animation: award-in .5s cubic-bezier(.2, 1.4, .4, 1) both; }
 @keyframes award-in { from { transform: translateY(14px) scale(.95); opacity: 0; } to { transform: none; opacity: 1; } }
 
+/* ---------- 大廳：難度選擇 ---------- */
+.diff {
+  display: flex; flex-direction: column; align-items: center; gap: .1rem; padding: .55rem .25rem; border-radius: .9rem;
+  background: rgba(0, 0, 0, .3); border: 2px solid transparent; color: #cffafe; transition: transform .1s, border-color .2s, background .2s;
+}
+.diff b { font-size: 1.5rem; line-height: 1.1; }
+.diff span { font-weight: 900; font-size: .85rem; }
+.diff small { font-size: .62rem; color: rgba(207, 250, 254, .65); text-align: center; line-height: 1.2; }
+.diff[aria-checked="true"] { border-color: var(--orange); background: rgba(255, 138, 0, .18); box-shadow: 0 0 14px rgba(255, 138, 0, .35); }
+.diff:disabled { cursor: default; }
+.diff:not(:disabled):active { transform: scale(.96); }
+.diff-picker.readonly .diff:not([aria-checked="true"]) { opacity: .45; }
+
+/* 寫字板左上的難度標籤 */
+.level-chip {
+  position: absolute; left: 36px; top: 9px; z-index: 10;
+  font-size: .68rem; font-weight: 900; color: #0b2a3d; background: rgba(14, 116, 144, .15);
+  border: 1px solid rgba(14, 116, 144, .4); border-radius: 999px; padding: .05rem .5rem;
+}
+.instruction-text .act { color: #fff; background: #dc2626; padding: 0 .25em; border-radius: .3em; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+
+/* ---------- 三段式開關：關／半開／全開 ---------- */
+.tri {
+  position: relative; display: grid; grid-template-columns: repeat(3, 1fr); width: min(36vw, 9.6rem);
+  border-radius: .9rem; background: linear-gradient(180deg, #030712, #1f2937); border: 3px solid #94a3b8;
+  box-shadow: inset 0 3px 8px rgba(0, 0, 0, .9); overflow: hidden;
+}
+.tri button { position: relative; z-index: 2; height: min(12vw, 3.2rem); font-size: .74rem; font-weight: 900; color: #94a3b8; transition: color .2s; }
+.tri button[aria-pressed="true"] { color: #1a1a1a; }
+.tri .tri-knob {
+  position: absolute; z-index: 1; top: 3px; bottom: 3px; width: calc(33.333% - 4px); left: calc(var(--v, 0) * 33.333% + 2px);
+  border-radius: .65rem; background: linear-gradient(180deg, #fde047, var(--yellow) 50%, #ca8a04);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, .7), inset 0 1px 0 #fff8; transition: left .22s cubic-bezier(.3, 1.6, .5, 1), background .2s;
+}
+.tri[data-v="1"] .tri-knob { background: linear-gradient(180deg, #a5f3fc, var(--cyan) 55%, #0e7490); }
+.tri[data-v="2"] .tri-knob { background: linear-gradient(180deg, #86efac, #22c55e 55%, #15803d); }
+
+/* ---------- 刻度調整器 0～10 ---------- */
+.stepper { display: flex; flex-direction: column; align-items: center; gap: .35rem; width: 100%; }
+.stepper-row { display: flex; align-items: center; justify-content: center; gap: .5rem; width: 100%; }
+.stepper button {
+  width: min(11vw, 2.9rem); aspect-ratio: 1; border-radius: 50%; font-size: 1.4rem; font-weight: 900; line-height: 1;
+  color: #2a1300; background: linear-gradient(180deg, #ffc56b, var(--orange)); box-shadow: 0 4px 0 #8a4300; transition: transform .06s, box-shadow .06s;
+}
+.stepper button:active { transform: translateY(3px); box-shadow: 0 1px 0 #8a4300; }
+.stepper .step-val {
+  min-width: 2.4ch; text-align: center; font-family: ui-monospace, monospace; font-weight: 900; font-size: min(10vw, 2.6rem); color: #e0f7ff;
+  text-shadow: 0 0 10px rgba(34, 211, 238, .8); background: rgba(0, 0, 0, .45); border: 2px solid #334155; border-radius: .6rem; padding: 0 .25rem;
+}
+.stepper .ticks { display: flex; gap: 2px; width: 92%; }
+.stepper .ticks i { flex: 1; height: 7px; border-radius: 2px; background: #1f2937; }
+.stepper .ticks i.on { background: var(--cyan); box-shadow: 0 0 5px rgba(34, 211, 238, .8); }
+
+/* ---------- 選擇器旋鈕 ---------- */
+.selector { display: flex; flex-direction: column; align-items: center; gap: .3rem; width: 100%; }
+.selector-row { display: flex; align-items: center; justify-content: center; gap: .35rem; }
+.selector .arrow { width: 1.9rem; height: 1.9rem; border-radius: 50%; font-weight: 900; color: #a5f3fc; background: rgba(0, 0, 0, .45); border: 1.5px solid #475569; }
+.selector .arrow:active { transform: scale(.92); }
+.knob {
+  position: relative; width: min(19vw, 5.2rem); aspect-ratio: 1; border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, #334155 0 6deg, #1e293b 6deg 12deg);
+  border: 4px solid #94a3b8; box-shadow: 0 5px 10px rgba(0, 0, 0, .7);
+}
+.knob::after {
+  content: ''; position: absolute; left: 50%; top: 8%; width: 12%; height: 34%; border-radius: 4px; background: var(--orange);
+  transform-origin: 50% 124%; transform: translateX(-50%) rotate(var(--deg, 0deg)); transition: transform .25s cubic-bezier(.3, 1.5, .5, 1);
+  box-shadow: 0 0 6px rgba(255, 138, 0, .9);
+}
+.selector .opt { font-weight: 900; font-size: .9rem; color: #1a1a1a; background: var(--yellow); border-radius: .4rem; padding: .05rem .5rem; min-width: 4.5em; text-align: center; }
+.selector .opt-list { display: flex; gap: 3px; }
+.selector .opt-list i { width: 6px; height: 6px; border-radius: 50%; background: #334155; }
+.selector .opt-list i.on { background: var(--orange); }
+
+/* ---------- 手勢按鈕（高難度：按一下／連按三下／長按） ---------- */
+.magic-btn { position: relative; }
+.magic-btn .hold-ring {
+  position: absolute; inset: -7px; border-radius: 50%; pointer-events: none; opacity: 0;
+  background: conic-gradient(var(--cyan) calc(var(--p, 0) * 1turn), transparent 0);
+  -webkit-mask: radial-gradient(circle, transparent 62%, #000 63%); mask: radial-gradient(circle, transparent 62%, #000 63%);
+}
+.magic-btn.holding .hold-ring { opacity: 1; }
+.tap-count {
+  position: absolute; right: 8%; top: 22%; z-index: 3; font-weight: 900; font-size: 1.1rem; color: #fff; background: #dc2626;
+  border-radius: 999px; padding: 0 .45rem; pointer-events: none; animation: pop .25s;
+}
+
+/* 八方位指北針：斜角方位用小字 */
+.compass b[data-d="NE"] { left: 77%; top: 23%; }
+.compass b[data-d="SE"] { left: 77%; top: 77%; }
+.compass b[data-d="SW"] { left: 23%; top: 77%; }
+.compass b[data-d="NW"] { left: 23%; top: 23%; }
+.compass.dir8 b { font-size: .7rem; }
+.compass.dir8 b[data-d="NE"], .compass.dir8 b[data-d="SE"], .compass.dir8 b[data-d="SW"], .compass.dir8 b[data-d="NW"] { font-size: .52rem; }
+.compass.dir8 b.on { transform: translate(-50%, -50%) scale(1.25); }
+
+/* ---------- 潛水事故（高難度） ---------- */
+#app.fog #panel, #app.fog #instruction-zone { filter: blur(7px) saturate(.6); transition: filter .4s; }
+#app.fog::after {
+  content: ''; position: absolute; inset: 0; z-index: 35; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 60%, rgba(226, 232, 240, .35), rgba(226, 232, 240, .1) 60%, transparent);
+}
+#panel.swirl .device { animation: swirl .9s ease-out; }
+@keyframes swirl { 0% { transform: rotate(-25deg) scale(.6); opacity: 0; } 100% { transform: none; opacity: 1; } }
+#app.narc #instruction-text { animation: narc 2.2s ease-in-out infinite; }
+@keyframes narc { 0%, 100% { transform: rotate(180deg) skewX(-6deg); } 50% { transform: rotate(172deg) skewX(8deg) scale(1.04); filter: hue-rotate(60deg); } }
+
 @media (prefers-reduced-motion: reduce) {
   .ocean-bg::before, .bubbles span, .sonar i, .title-diver, .magic-btn-core, #app.chaos .gear-panel { animation: none; }
 }

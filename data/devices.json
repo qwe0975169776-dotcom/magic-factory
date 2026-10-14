@@ -48,5 +48,13 @@
   {"id": "cmp_03", "name": "放流洋流風向雞", "type": "compass", "action": "轉到指定方向", "target": "random", "instruction": "把放流洋流風向雞轉到（隨機方向）！"},
   {"id": "cmp_04", "name": "迷路潛伴回家導航盤", "type": "compass", "action": "轉到指定方向", "target": "random", "instruction": "把迷路潛伴回家導航盤轉到（隨機方向）！"},
   {"id": "cmp_05", "name": "海龜帶路不靠譜羅盤", "type": "compass", "action": "轉到指定方向", "target": "random", "instruction": "把海龜帶路不靠譜羅盤轉到（隨機方向）！"},
-  {"id": "cmp_06", "name": "母船到底在哪裡指針", "type": "compass", "action": "轉到指定方向", "target": "random", "instruction": "把母船到底在哪裡指針轉到（隨機方向）！"}
+  {"id": "cmp_06", "name": "母船到底在哪裡指針", "type": "compass", "action": "轉到指定方向", "target": "random", "instruction": "把母船到底在哪裡指針轉到（隨機方向）！"},
+  {"id": "sel_01", "name": "氣體選擇器亂混一通版", "type": "selector", "action": "轉到指定選項", "target": "random", "options": ["空氣", "高氧32", "高氧36", "三混氣"], "instruction": "把氣體選擇器亂混一通版轉到（隨機選項）！"},
+  {"id": "sel_02", "name": "深度旋鈕說好不超過", "type": "selector", "action": "轉到指定選項", "target": "random", "options": ["5 米", "10 米", "18 米", "30 米"], "instruction": "把深度旋鈕說好不超過轉到（隨機選項）！"},
+  {"id": "sel_03", "name": "潛水電腦錶保守度調整盤", "type": "selector", "action": "轉到指定選項", "target": "random", "options": ["保守", "普通", "激進", "不要命"], "instruction": "把潛水電腦錶保守度調整盤轉到（隨機選項）！"},
+  {"id": "sel_04", "name": "防寒衣厚度選擇輪", "type": "selector", "action": "轉到指定選項", "target": "random", "options": ["3mm", "5mm", "7mm", "乾式"], "instruction": "把防寒衣厚度選擇輪轉到（隨機選項）！"},
+  {"id": "sel_05", "name": "潛伴手勢翻譯模式", "type": "selector", "action": "轉到指定選項", "target": "random", "options": ["OK", "上升", "沒氣", "有鯊魚"], "instruction": "把潛伴手勢翻譯模式轉到（隨機選項）！"},
+  {"id": "sel_06", "name": "潛點選擇轉盤", "type": "selector", "action": "轉到指定選項", "target": "random", "options": ["綠島", "蘭嶼", "墾丁", "小琉球"], "instruction": "把潛點選擇轉盤轉到（隨機選項）！"},
+  {"id": "sel_07", "name": "船長心情指示器", "type": "selector", "action": "轉到指定選項", "target": "random", "options": ["開心", "普通", "暈船", "罵人"], "instruction": "把船長心情指示器轉到（隨機選項）！"},
+  {"id": "sel_08", "name": "減壓停留點歌機", "type": "selector", "action": "轉到指定選項", "target": "random", "options": ["抒情", "電音", "台語", "重金屬"], "instruction": "把減壓停留點歌機轉到（隨機選項）！"}
 ]
