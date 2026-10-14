@@ -311,7 +311,7 @@ input { user-select: text; -webkit-user-select: text; }
 }
 
 /* 提示訊息放在狀態列下方，不擋住氣壓錶 */
-.toast { top: calc(max(10%, 56px) + 10px); transition: opacity .25s; white-space: nowrap; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; }
+.toast { top: calc(max(10%, 56px) + 10px); transition: opacity .25s; width: max-content; max-width: calc(100% - 32px); text-align: center; line-height: 1.35; border-radius: 1.1rem !important; }
 .toast.show { opacity: 1; }
 
 /* 開局倒數 */
@@ -655,16 +655,100 @@ input { user-select: text; -webkit-user-select: text; }
 .solo-mode #instruction-zone { justify-content: flex-start; padding-top: 30px; padding-bottom: 8px; }
 .solo-mode .solo-orders { gap: .3rem; }
 .solo-mode .toast { top: calc(max(10%, 56px) + 30% - 18px); }
-.solo-mode #panel { grid-template-rows: repeat(3, minmax(0, 1fr)); gap: .5rem; padding: .5rem; }
-.solo-mode .device { padding: .35rem .4rem .45rem; }
-.solo-mode .magic-btn { width: min(20vw, 5.4rem); }
-.solo-mode .compass { width: min(24vw, 6.4rem); }
-.solo-mode .lever-track { height: min(11vw, 3rem); }
-.solo-mode .stepper button { width: min(9.5vw, 2.5rem); }
-.solo-mode .stepper .step-val { font-size: min(8vw, 2rem); }
-.solo-mode .knob { width: min(15vw, 4.2rem); }
-.solo-mode .device-plate { font-size: clamp(.72rem, 3.3vw, .88rem); padding: .2rem .35rem; }
+/* 單人 6 個機關，或多人時有機關漂過來（5 個）：改成三排、元件縮小 */
+.solo-mode #panel, #panel.many { grid-template-rows: repeat(3, minmax(0, 1fr)); gap: .5rem; padding: .5rem; }
+.solo-mode .device, #panel.many .device { padding: .35rem .4rem .45rem; }
+.solo-mode .magic-btn, #panel.many .magic-btn { width: min(20vw, 5.4rem); }
+.solo-mode .compass, #panel.many .compass { width: min(24vw, 6.4rem); }
+.solo-mode .lever-track, #panel.many .lever-track { height: min(11vw, 3rem); }
+.solo-mode .stepper button, #panel.many .stepper button { width: min(9.5vw, 2.5rem); }
+.solo-mode .stepper .step-val, #panel.many .stepper .step-val { font-size: min(8vw, 2rem); }
+.solo-mode .knob, #panel.many .knob { width: min(15vw, 4.2rem); }
+.solo-mode .device-plate, #panel.many .device-plate { font-size: clamp(.72rem, 3.3vw, .88rem); padding: .2rem .35rem; }
 
 @media (prefers-reduced-motion: reduce) {
   .ocean-bg::before, .bubbles span, .sonar i, .title-diver, .magic-btn-core, #app.chaos .gear-panel { animation: none; }
 }
+
+/* ---------- 首頁／大廳的音樂開關 ---------- */
+.music-float {
+  position: absolute; right: 12px; top: calc(env(safe-area-inset-top, 0px) + 12px); z-index: 40;
+  width: 38px; height: 38px; border-radius: 50%; font-size: 1.05rem; line-height: 1;
+  background: rgba(6, 26, 43, .75); border: 1.5px solid rgba(103, 232, 249, .5); box-shadow: 0 3px 10px rgba(0, 0, 0, .4);
+}
+.music-float.off { opacity: .5; text-decoration: line-through; }
+#app[data-screen="game"] .music-float { display: none; }
+
+/* ---------- 換潛點：水面休息卡 ---------- */
+.surface-card {
+  position: absolute; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: .15rem; padding: .6rem 1rem; text-align: center; color: #0b2a3d;
+  background: radial-gradient(circle at 50% 120%, rgba(56, 189, 248, .55), transparent 60%), linear-gradient(180deg, #e0f7ff, #bae6fd 60%, #7dd3fc);
+}
+.surface-card.hidden { display: none; }
+.surface-card .s-kicker { font-size: .8rem; font-weight: 900; letter-spacing: .2em; color: #0e7490; }
+.surface-card .s-site { font-family: "Noto Serif TC", serif; font-weight: 900; font-size: clamp(1.25rem, 6.4vw, 1.7rem); line-height: 1.2; text-wrap: balance; }
+.surface-card .s-line { font-size: .88rem; font-weight: 700; color: #155e75; }
+.surface-card .s-bonus { font-size: .8rem; font-weight: 900; color: #047857; }
+.surface-card .s-bonus:empty { display: none; }
+.surface-card .s-note { font-size: .75rem; color: #335466; }
+.surface-card .s-count { margin-top: .15rem; font-family: ui-monospace, monospace; font-weight: 900; font-size: 1.05rem; color: #c2410c; }
+.surface-card.pop { animation: surface-in .5s cubic-bezier(.2, 1.3, .4, 1); }
+@keyframes surface-in { from { transform: translateY(-30%); opacity: 0; } }
+.device.dealt { animation: dealt .45s cubic-bezier(.2, 1.3, .4, 1) both; }
+@keyframes dealt { from { transform: translateY(40px) scale(.85); opacity: 0; } }
+
+/* ---------- 機關故障 ---------- */
+.device-body { position: relative; }
+.barnacle {
+  --p: 0; position: absolute; inset: -4px; z-index: 8; border-radius: .8rem; overflow: hidden; touch-action: none;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(120, 113, 108, .95) 0 12%, transparent 13%),
+    radial-gradient(circle at 70% 60%, rgba(87, 83, 78, .95) 0 15%, transparent 16%),
+    radial-gradient(circle at 45% 80%, rgba(120, 113, 108, .9) 0 10%, transparent 11%),
+    radial-gradient(circle at 80% 20%, rgba(68, 64, 60, .9) 0 9%, transparent 10%),
+    linear-gradient(160deg, rgba(87, 83, 78, .93), rgba(41, 37, 36, .95));
+  opacity: calc(1 - var(--p) * .75);
+  transition: opacity .1s;
+}
+#panel .barnacle, #panel .barnacle * { touch-action: none; }
+.barnacle i {
+  position: absolute; font-style: normal; font-size: 1.5rem; line-height: 1;
+  transform: rotate(var(--r)) scale(calc(var(--s) * (1 - var(--p) * .6)));
+  opacity: calc(1 - var(--p) * 1.15); filter: saturate(.6) drop-shadow(0 2px 2px rgba(0, 0, 0, .6));
+}
+.barnacle-tip {
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); white-space: nowrap;
+  font-size: .72rem; font-weight: 900; color: #fef3c7; background: rgba(0, 0, 0, .55); padding: .1rem .5rem; border-radius: 999px;
+  animation: tip-blink 1s ease-in-out infinite;
+}
+@keyframes tip-blink { 50% { opacity: .55; } }
+.barnacle-bar { position: absolute; left: 10%; right: 10%; bottom: 5px; height: 5px; border-radius: 3px; background: rgba(0, 0, 0, .5); overflow: hidden; }
+.barnacle-bar b { display: block; height: 100%; width: calc(var(--p) * 100%); background: linear-gradient(90deg, #fbbf24, #4ade80); }
+.barnacle.gone { animation: barnacle-off .45s forwards; }
+@keyframes barnacle-off { to { opacity: 0; transform: scale(1.15); } }
+.device-plate.wet { background: linear-gradient(180deg, #bae6fd, #7dd3fc); }
+.device-plate .smudge { font-style: normal; display: inline-block; filter: blur(3.5px); opacity: .7; transform: translateY(2px) skewX(-8deg); }
+.device.drift-out { animation: drift-out .9s ease-in forwards; pointer-events: none; }
+@keyframes drift-out { to { transform: translate(120%, -40px) rotate(25deg); opacity: 0; } }
+.device.drift-in { animation: drift-in .9s cubic-bezier(.2, 1.2, .4, 1); }
+@keyframes drift-in { from { transform: translate(-120%, 30px) rotate(-25deg); opacity: 0; } }
+
+/* ---------- 結算：本局精華 ---------- */
+.hl { display: flex; gap: .6rem; align-items: flex-start; background: rgba(14, 116, 144, .25); border: 1px solid rgba(103, 232, 249, .3); border-radius: .9rem; padding: .55rem .7rem; }
+.hl-icon { font-size: 1.4rem; line-height: 1.2; }
+.hl-body { font-size: .85rem; color: rgba(236, 254, 255, .92); }
+.hl-body b { display: block; font-family: "Noto Serif TC", serif; font-weight: 900; color: var(--yellow); font-size: .95rem; }
+.hl.pop-in { animation: award-in .5s cubic-bezier(.2, 1.4, .4, 1) both; }
+#btn-card { padding: .6rem 1rem; font-size: 1rem; }
+
+/* ---------- 成績卡 ---------- */
+.card-modal { position: absolute; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(2, 10, 20, .96); }
+.card-modal.hidden { display: none; }
+.card-box { display: flex; flex-direction: column; align-items: center; gap: .6rem; width: 100%; max-height: 100%; }
+.card-box img { width: 100%; max-height: calc(100dvh - 190px); object-fit: contain; border-radius: .8rem; box-shadow: 0 10px 30px rgba(0, 0, 0, .6); -webkit-touch-callout: default; user-select: auto; -webkit-user-select: auto; }
+.card-tip { font-size: .8rem; color: rgba(207, 250, 254, .8); }
+.card-row { display: flex; gap: .6rem; width: 100%; }
+.card-row > * { flex: 1; text-align: center; text-decoration: none; padding: .7rem .5rem; font-size: 1rem; }
+.card-row > .hidden { display: none; }
+.card-close { font-size: .9rem; color: rgba(207, 250, 254, .7); text-decoration: underline; }

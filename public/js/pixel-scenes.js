@@ -564,6 +564,12 @@
     FPS,
     intro(app, ms = 3500) { return play(app, 'intro', ms, null, false); },
     ending(app, kind, done, ms = 5000) { return play(app, kind, ms, done, true); },
+    /** 成績卡用的小人（safe／panting／passout） */
+    icon(kind) {
+      if (kind === 'passout') return sprite(DIVER_KO_HEAD.concat(DIVER.slice(8)), FINS[0]);
+      if (kind === 'panting') return sprite(DIVER_PANT_HEAD.concat(MOUTH_OPEN, DIVER.slice(8)), FINS[0]);
+      return sprite(DIVER, FINS[0]);
+    },
     kindFor(reason, air) {
       if (reason === 'collapse') return 'passout';
       return air >= 60 ? 'safe' : 'panting';

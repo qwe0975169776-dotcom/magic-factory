@@ -24,8 +24,12 @@
     stability: AIR_FULL,
     lowAirWarned: false,
     durationMs: 180000,
-    musicOn: false,
+    timerFrozen: null,   // 水面休息時，計時器停在這個值
+    surface: false,
+    inEnding: false,
+    stageInfo: null,     // { label, stage, stages, site }
   };
+  const MENU_SCREENS = new Set(['home', 'solo', 'lobby', 'result']);
 
   // ---------------------------------------------------------
   // 共用工具
@@ -37,7 +41,9 @@
   function showScreen(name) {
     state.screen = name;
     for (const s of ['home', 'solo', 'lobby', 'game', 'result']) $('screen-' + s).classList.toggle('hidden', s !== name);
+    $('app').dataset.screen = name;
     $('toast').classList.remove('show');
+    if (MENU_SCREENS.has(name) && !state.inEnding) menuMusic();
     if (name === 'lobby' || name === 'game') keepAwake(); else releaseAwake();
   }
 
@@ -162,7 +168,12 @@
     alarm() { for (let i = 0; i < 6; i++) tone(2400, i * 0.14, 0.08, 'square', 0.06); },
     lowAir() { for (let i = 0; i < 3; i++) tone(1700, i * 0.3, 0.18, 'square', 0.07); },
   };
-  document.addEventListener('pointerdown', ensureAudio, { passive: true });
+  // 瀏覽器規定要先點一下畫面才能出聲音：第一次點擊就開始播船上主題曲
+  const unlockAudio = () => {
+    ensureAudio();
+    if (MENU_SCREENS.has(state.screen) && !state.inEnding && !DiveMusic.theme) menuMusic();
+  };
+  ['pointerdown', 'touchend', 'click'].forEach((ev) => document.addEventListener(ev, unlockAudio, { passive: true }));
 
   // ---------------------------------------------------------
   // 防止手機「快速連點 → 畫面放大」與雙指縮放
@@ -714,8 +725,11 @@
   function loop() {
     const now = performance.now();
     if (state.screen === 'game') {
-      const remaining = Math.max(0, state.timerEnd - now);
-      if (SOLO.active && SOLO.mode === 'endless') {
+      const remaining = state.timerFrozen != null ? state.timerFrozen : Math.max(0, state.timerEnd - now);
+      if (state.timerFrozen != null) {
+        $('game-timer').textContent = fmtTime(state.timerFrozen);
+        document.querySelector('.timer-box').classList.remove('urgent');
+      } else if (SOLO.active && SOLO.mode === 'endless') {
         $('game-timer').textContent = fmtTime(SOLO.startAt ? now - SOLO.startAt : 0);
         document.querySelector('.timer-box').classList.remove('urgent');
       } else {
@@ -723,12 +737,13 @@
         document.querySelector('.timer-box').classList.toggle('urgent', remaining <= 30000 && remaining > 0);
       }
       if (SOLO.active) renderSoloBars(now);
-      if (state.musicOn) {
+      if (DiveMusic.theme === 'game') {
         const airFrac = (state.stability - AIR_EMPTY) / (AIR_FULL - AIR_EMPTY);
         const progress = SOLO.active ? SOLO.progress : 1 - remaining / state.durationMs;
         const chaos = $('app').classList.contains('chaos') ? 0.3 : 0;
-        DiveMusic.setTension(0.35 * progress + 0.45 * (1 - airFrac) + chaos + (SOLO.active ? SOLO.extra : 0));
-        DiveMusic.setLowAir(state.stability < LOW_AIR);
+        // 水面休息：音樂退回平靜段
+        DiveMusic.setTension(state.surface ? 0 : 0.35 * progress + 0.45 * (1 - airFrac) + chaos + (SOLO.active ? SOLO.extra : 0));
+        DiveMusic.setLowAir(!state.surface && state.stability < LOW_AIR);
       }
 
       if (state.instr.active) {
@@ -774,6 +789,8 @@
     const introMs = ms - countMs;
     $('app').classList.add('locked');
     box.classList.add('hidden');
+    ensureAudio();
+    if (actx) DiveMusic.cue('intro', actx, ms / 1000);
     if (introMs >= 1500) {
       PixelScenes.intro($('app'), introMs);
       countdownTimers.push(setTimeout(() => splash(0, 0.7, 0.3), introMs * 0.36));
@@ -797,29 +814,38 @@
   // ---------------------------------------------------------
   // 背景音樂
   // ---------------------------------------------------------
+  // 首頁／大廳／結算：船上主題曲；遊戲中：緊張度音樂；開場、結局：過場配樂
   function startMusic() {
     ensureAudio();
-    if (!actx || !DiveMusic.enabled) { state.musicOn = false; return; }
-    DiveMusic.start(actx);
-    state.musicOn = true;
+    if (actx) DiveMusic.play('game', actx, 0.4);
   }
-  function stopMusic(fade) {
-    DiveMusic.stop(fade);
-    state.musicOn = false;
+  function menuMusic() {
+    if (actx && DiveMusic.enabled) DiveMusic.play('menu', actx);
   }
-  function paintMusicBtn() { $('btn-music').classList.toggle('off', !DiveMusic.enabled); }
+  function paintMusicBtn() {
+    ['btn-music', 'btn-music-float'].forEach((id) => $(id).classList.toggle('off', !DiveMusic.enabled));
+    $('solo-music').checked = DiveMusic.enabled;
+  }
   paintMusicBtn();
-  $('btn-music').addEventListener('click', () => {
+  function toggleMusic() {
+    ensureAudio();
     DiveMusic.toggle();
     paintMusicBtn();
-    if (DiveMusic.enabled && state.screen === 'game' && !$('app').classList.contains('locked')) startMusic();
-    else if (!DiveMusic.enabled) stopMusic(0.3);
+    if (DiveMusic.enabled) {
+      if (state.screen === 'game' && !state.inEnding && (state.surface || !$('app').classList.contains('locked'))) startMusic();
+      else if (MENU_SCREENS.has(state.screen) && !state.inEnding) menuMusic();
+    }
     toast(DiveMusic.enabled ? '🎵 音樂開' : '🔇 音樂關');
-  });
+  }
+  $('btn-music').addEventListener('click', toggleMusic);
+  $('btn-music-float').addEventListener('click', toggleMusic);
 
   /** 結束：停音樂 → 播結局動畫 → 顯示結算 */
   function playEnding(reason, air, then) {
-    stopMusic(0.8);
+    state.inEnding = true;
+    state.surface = false;
+    state.timerFrozen = null;
+    hideSurface();
     state.instr.active = false;
     countdownTimers.forEach(clearTimeout);
     $('countdown').classList.add('hidden');
@@ -827,8 +853,8 @@
     accidentTimers.forEach(clearTimeout);
     const kind = PixelScenes.kindFor(reason, air);
     ensureAudio();
-    if (actx) setTimeout(() => DiveMusic.sting(kind, actx), 500);
-    PixelScenes.ending($('app'), kind, then, 5000);
+    if (actx) DiveMusic.cue(kind, actx);
+    PixelScenes.ending($('app'), kind, () => { state.inEnding = false; then(); }, 5000);
   }
 
   socket.on('game:started', (g) => {
@@ -841,21 +867,201 @@
     accidentTimers.forEach(clearTimeout);
     $('app').classList.remove('fog', 'narc');
     state.timerEnd = performance.now() + g.remainingMs;
+    state.timerFrozen = null;
+    state.surface = false;
     state.lowAirWarned = false;
-    devices.clear();
-    const panel = $('panel');
-    panel.innerHTML = '';
-    g.devices.forEach((d) => panel.appendChild(createDevice(d)));
+    hideSurface();
+    rebuildPanel(g.devices, false);
     $('app').classList.remove('chaos', 'low-air');
     showScreen('game');
     setStability(g.stability);
-    setInstruction('先看清楚你的四個機關！<br><span class="text-base">指令出現就大聲喊給潛伴聽</span>', { muted: true });
+    state.stageInfo = { label: g.levelLabel || '', stage: g.stage || 0, stages: g.stages || 1, site: g.site };
+    paintChip();
+    setInstruction(`${g.site && g.stages > 1 ? `${g.site.emoji} 第 1 潛：${esc(g.site.name)}<br>` : ''}先看清楚你的四個機關！<br><span class="text-base">指令出現就大聲喊給潛伴聽</span>`, { muted: true });
     runCountdown(g.countdownMs || 3000);
   });
 
-  socket.on('game:timer', ({ remainingMs }) => {
-    state.timerEnd = performance.now() + remainingMs;
+  socket.on('game:timer', ({ remainingMs, paused }) => {
+    if (paused) state.timerFrozen = remainingMs;
+    else { state.timerFrozen = null; state.timerEnd = performance.now() + remainingMs; }
   });
+
+  // ---------------------------------------------------------
+  // 換潛點：水面休息 → 機關整組換新
+  // ---------------------------------------------------------
+  function paintChip() {
+    const s = state.stageInfo;
+    if (!s) return;
+    const stageText = s.site ? `｜${s.site.emoji} 第${s.stage + 1}${s.stages ? `/${s.stages}` : ''}潛` : '';
+    $('level-chip').textContent = `${s.label}${stageText}`;
+  }
+  function rebuildPanel(list, animate) {
+    devices.clear();
+    const panel = $('panel');
+    panel.innerHTML = '';
+    list.forEach((d, i) => {
+      const el = createDevice(d);
+      if (animate) { el.classList.add('dealt'); el.style.animationDelay = `${i * 0.08}s`; }
+      panel.appendChild(el);
+    });
+    relayoutPanel();
+  }
+  function relayoutPanel() {
+    const panel = $('panel');
+    panel.classList.toggle('many', panel.children.length > 4);
+  }
+  let surfaceTimer = null;
+  function showSurface({ stage, stages, site, ms, bonus }) {
+    const card = $('surface-card');
+    $('s-site').textContent = `${site.emoji} 第 ${stage + 1}${stages ? `/${stages}` : ''} 潛：${site.name}`;
+    $('s-line').textContent = site.line || '';
+    $('s-bonus').textContent = bonus > 0 ? `喝口水喘口氣　氣瓶 +${bonus} bar` : '';
+    card.classList.remove('hidden');
+    retrigger(card, 'pop');
+    $('app').classList.add('locked');
+    $('app').classList.remove('chaos', 'fog', 'narc');
+    const end = performance.now() + ms;
+    clearInterval(surfaceTimer);
+    const paint = () => {
+      const left = Math.max(0, Math.ceil((end - performance.now()) / 1000));
+      $('s-count').textContent = left > 0 ? `${left} 秒後下潛` : '下潛！';
+    };
+    paint();
+    surfaceTimer = setInterval(paint, 250);
+    ensureAudio();
+    if (actx) DiveMusic.jingle(actx);
+    sfx.go();
+    if (navigator.vibrate) navigator.vibrate([40, 40, 40]);
+  }
+  function hideSurface() {
+    clearInterval(surfaceTimer);
+    $('surface-card').classList.add('hidden');
+    if (state.screen === 'game' && !state.inEnding) $('app').classList.remove('locked');
+  }
+
+  socket.on('stage:surface', (s) => {
+    if (SOLO.active) return;
+    state.surface = true;
+    state.instr.active = false;
+    accidentTimers.forEach(clearTimeout);
+    setInstruction('', { muted: true });
+    rebuildPanel(s.devices, true);
+    setStability(s.stability);
+    state.stageInfo = { ...state.stageInfo, stage: s.stage, stages: s.stages, site: s.site };
+    paintChip();
+    showSurface(s);
+  });
+  socket.on('stage:dive', ({ stage, site }) => {
+    if (SOLO.active) return;
+    state.surface = false;
+    hideSurface();
+    setInstruction(`${site.emoji} 第 ${stage + 1} 潛：${esc(site.name)}<br><span class="text-base">指令來了就大聲喊！</span>`, { muted: true });
+    sfx.beep();
+  });
+
+  // ---------------------------------------------------------
+  // 機關故障：藤壺、名牌糊掉、漂到別人那邊
+  // ---------------------------------------------------------
+  function scrapeSfx() {
+    if (!actx) return;
+    sweep(1800 + Math.random() * 900, 900, 0, 0.05, 'sawtooth', 0.025);
+  }
+  function addBarnacle(id, need, onFixed) {
+    const dv = devices.get(id);
+    if (!dv || dv.barnacle) return;
+    const body = dv.el.querySelector('.device-body');
+    const ov = document.createElement('div');
+    ov.className = 'barnacle';
+    let shells = '';
+    for (let i = 0; i < 10; i++) {
+      shells += `<i style="left:${4 + Math.random() * 82}%;top:${2 + Math.random() * 70}%;--r:${Math.round(Math.random() * 360)}deg;--s:${(0.8 + Math.random() * 0.7).toFixed(2)}">${pick(['🐚', '🦪', '🪸', '🐚'])}</i>`;
+    }
+    ov.innerHTML = `${shells}<span class="barnacle-tip">🐚 手指來回搓掉！</span><span class="barnacle-bar"><b></b></span>`;
+    body.appendChild(ov);
+    dv.barnacle = { ov, need: need * 70, got: 0 };
+    retrigger(dv.el, 'bad');
+    if (navigator.vibrate) navigator.vibrate([30, 30, 30, 30, 30]);
+    let last = null;
+    ov.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      try { ov.setPointerCapture(e.pointerId); } catch (err) { /* 略過 */ }
+      last = { x: e.clientX, y: e.clientY };
+    });
+    ov.addEventListener('pointermove', (e) => {
+      if (!last || !dv.barnacle) return;
+      const d = Math.hypot(e.clientX - last.x, e.clientY - last.y);
+      last = { x: e.clientX, y: e.clientY };
+      dv.barnacle.got += Math.min(d, 60);
+      const p = Math.min(1, dv.barnacle.got / dv.barnacle.need);
+      ov.style.setProperty('--p', p.toFixed(3));
+      if (d > 4 && Math.random() < 0.3) scrapeSfx();
+      if (p >= 1) {
+        clearBarnacle(id, true);
+        if (onFixed) onFixed();
+      }
+    });
+    const up = () => { last = null; };
+    ov.addEventListener('pointerup', up);
+    ov.addEventListener('pointercancel', up);
+  }
+  function clearBarnacle(id, byMe) {
+    const dv = devices.get(id);
+    if (!dv || !dv.barnacle) return;
+    const ov = dv.barnacle.ov;
+    dv.barnacle = null;
+    ov.classList.add('gone');
+    setTimeout(() => ov.remove(), 450);
+    if (byMe) {
+      sfx.helped();
+      toast('✨ 藤壺搓乾淨了！');
+      if (navigator.vibrate) navigator.vibrate(40);
+    }
+  }
+  function smudgeDevice(id, ms) {
+    const dv = devices.get(id);
+    if (!dv) return;
+    const plate = dv.el.querySelector('.device-plate');
+    const chars = [...dv.data.name];
+    const hide = new Set();
+    const n = Math.min(chars.length - 1, Math.ceil(chars.length * 0.55));
+    while (hide.size < n) hide.add(Math.floor(Math.random() * chars.length));
+    plate.innerHTML = chars.map((c, i) => (hide.has(i) ? `<i class="smudge">${esc(c)}</i>` : esc(c))).join('');
+    plate.classList.add('wet');
+    clearTimeout(dv.smudgeTimer);
+    dv.smudgeTimer = setTimeout(() => { plate.textContent = dv.data.name; plate.classList.remove('wet'); }, ms);
+    sweep(700, 300, 0, 0.25, 'sine', 0.08);
+  }
+  function driftOut(id, toName) {
+    const dv = devices.get(id);
+    if (!dv) return;
+    devices.delete(id);
+    dv.el.classList.add('drift-out');
+    toast(`🌊「${dv.data.name}」被洋流沖到 ${toName} 那邊了！`);
+    sweep(500, 150, 0, 0.6, 'sine', 0.1);
+    setTimeout(() => { dv.el.remove(); relayoutPanel(); }, 900);
+  }
+  function driftIn(d, fromName) {
+    const el = createDevice(d);
+    el.classList.add('drift-in');
+    $('panel').appendChild(el);
+    relayoutPanel();
+    toast(`🌊 ${fromName} 的「${d.name}」漂到你這裡了！`);
+    sweep(150, 500, 0, 0.6, 'sine', 0.1);
+    if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
+  }
+  socket.on('device:break', ({ deviceId, kind, scrub, ms }) => {
+    if (state.screen !== 'game' || SOLO.active) return;
+    if (kind === 'barnacle') {
+      addBarnacle(deviceId, scrub || 7, () => socket.emit('device:fixed', { deviceId }));
+      toast('🐚 有機關被藤壺黏住了！搓掉才能用');
+    } else if (kind === 'smudge') {
+      smudgeDevice(deviceId, ms || 12000);
+      toast('💧 機關名牌被水糊掉了！靠潛伴喊的名字猜');
+    }
+  });
+  socket.on('device:fixed', ({ deviceId }) => clearBarnacle(deviceId, false));
+  socket.on('device:drift-out', ({ deviceId, toName }) => driftOut(deviceId, toName));
+  socket.on('device:drift-in', ({ device, fromName }) => { if (state.screen === 'game') driftIn(device, fromName); });
 
   socket.on('game:chaos', () => {
     $('app').classList.add('chaos');
@@ -969,6 +1175,17 @@
     $('result-stability').textContent = `${r.stability} bar`;
     $('result-time').textContent = fmtTime(r.survivedMs);
     const medals = ['🥇', '🥈', '🥉'];
+    renderHighlights(r.highlights || []);
+    state.card = {
+      kind: PixelScenes.kindFor(r.reason, r.stability),
+      level: r.levelLabel || '',
+      reason: reasons[r.reason] || '',
+      rank: r.rank,
+      stats: [['完成', r.completed], ['逾時', r.failed], ['亂按', r.wrong], ['剩餘', `${r.stability} bar`]],
+      players: r.players.map((p) => ({ name: p.name, title: p.title || '' })),
+      highlights: r.highlights || [],
+      sites: r.sites || [],
+    };
     $('result-players').innerHTML = r.players.map((p, i) => `
       <li class="award pop-in ${p.id === socket.id ? 'me' : ''}" style="animation-delay:${0.25 + i * 0.35}s">
         <span class="pos">${medals[i] || i + 1}</span>
@@ -984,6 +1201,165 @@
     showScreen('result');
     r.players.forEach((_, i) => setTimeout(() => bubble(0, 300 + i * 60), 250 + i * 350));
   }
+
+  function renderHighlights(list) {
+    $('result-hl-box').classList.toggle('hidden', !list.length);
+    $('result-highlights').innerHTML = list.map((h, i) => `
+      <li class="hl pop-in" style="animation-delay:${0.15 + i * 0.25}s">
+        <span class="hl-icon">${esc(h.icon)}</span>
+        <span class="hl-body"><b>${esc(h.title)}</b>${esc(h.text)}</span>
+      </li>`).join('');
+  }
+
+  // ---------------------------------------------------------
+  // 成績卡：用 canvas 畫一張可以存、可以傳到群組的圖
+  // ---------------------------------------------------------
+  const CARD_SANS = '"Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Noto Sans CJK TC", sans-serif';
+  const CARD_SERIF = '"Noto Serif TC", "Noto Serif CJK TC", "PMingLiU", serif';
+  function fitFont(x, text, weight, size, family, maxW) {
+    let px = size;
+    x.font = `${weight} ${px}px ${family}`;
+    while (px > 14 && x.measureText(text).width > maxW) { px -= 2; x.font = `${weight} ${px}px ${family}`; }
+    return px;
+  }
+  async function drawCard(c) {
+    const Wd = 1080, Ht = 1350;
+    const cv = document.createElement('canvas');
+    cv.width = Wd;
+    cv.height = Ht;
+    const x = cv.getContext('2d');
+    const allText = [c.level, c.reason, c.rank, ...c.players.map((p) => p.name + p.title), ...c.highlights.map((h) => h.title + h.text), '深海大亂潛頒獎精華完成逾時亂按剩餘', ...c.stats.map((s) => String(s[1]))].join('');
+    try {
+      await Promise.race([
+        Promise.all([`900 80px ${CARD_SERIF}`, `700 40px ${CARD_SANS}`, `900 40px ${CARD_SANS}`, `500 30px ${CARD_SANS}`].map((f) => document.fonts.load(f, allText))),
+        new Promise((r) => setTimeout(r, 2500)),
+      ]);
+    } catch (e) { /* 字型載入失敗就用系統字 */ }
+    // 海底背景
+    const bg = x.createLinearGradient(0, 0, 0, Ht);
+    bg.addColorStop(0, '#0e6a9a');
+    bg.addColorStop(0.35, '#073b5e');
+    bg.addColorStop(1, '#020b15');
+    x.fillStyle = bg;
+    x.fillRect(0, 0, Wd, Ht);
+    x.save();
+    x.globalAlpha = 0.08;
+    x.fillStyle = '#e0f7ff';
+    [[120, 260], [380, 520], [700, 820], [900, 1040]].forEach(([a, b]) => { x.beginPath(); x.moveTo(a, 0); x.lineTo(b, 0); x.lineTo(b + 220, Ht); x.lineTo(a - 60, Ht); x.fill(); });
+    x.restore();
+    x.strokeStyle = 'rgba(224,247,255,.16)';
+    x.lineWidth = 3;
+    for (let i = 0; i < 26; i++) {
+      const bx = (i * 397) % Wd, by = 300 + ((i * 613) % (Ht - 300)), r = 6 + ((i * 7) % 18);
+      x.beginPath(); x.arc(bx, by, r, 0, Math.PI * 2); x.stroke();
+    }
+    x.textAlign = 'center';
+    x.textBaseline = 'alphabetic';
+    // 標題
+    x.shadowColor = 'rgba(103,232,249,.8)';
+    x.shadowBlur = 24;
+    x.fillStyle = '#e0f7ff';
+    x.font = `900 92px ${CARD_SERIF}`;
+    x.fillText('深海大亂潛', Wd / 2, 130);
+    x.shadowBlur = 0;
+    x.fillStyle = 'rgba(207,250,254,.85)';
+    fitFont(x, c.level, 700, 36, CARD_SANS, 900);
+    x.fillText(`${c.level}　${new Date().toLocaleDateString('zh-TW')}`, Wd / 2, 190);
+    // 像素潛水員
+    const icon = PixelScenes.icon(c.kind);
+    const scale = 13;
+    x.imageSmoothingEnabled = false;
+    x.drawImage(icon, Wd / 2 - (icon.width * scale) / 2, 220, icon.width * scale, icon.height * scale);
+    let y = 220 + icon.height * scale + 60;
+    x.fillStyle = '#cffafe';
+    fitFont(x, c.reason, 700, 36, CARD_SANS, 960);
+    x.fillText(c.reason, Wd / 2, y);
+    y += 78;
+    x.fillStyle = '#facc15';
+    x.shadowColor = 'rgba(0,0,0,.6)';
+    x.shadowBlur = 10;
+    fitFont(x, c.rank, 900, 66, CARD_SERIF, 980);
+    x.fillText(c.rank, Wd / 2, y);
+    x.shadowBlur = 0;
+    // 數字
+    y += 40;
+    const colW = 960 / c.stats.length;
+    c.stats.forEach(([label, val], i) => {
+      const cx = 60 + colW * i;
+      x.fillStyle = 'rgba(0,0,0,.35)';
+      x.beginPath();
+      x.roundRect ? x.roundRect(cx + 8, y, colW - 16, 120, 20) : x.rect(cx + 8, y, colW - 16, 120);
+      x.fill();
+      x.fillStyle = ['#6ee7b7', '#fcd34d', '#fda4af', '#7dd3fc'][i % 4];
+      fitFont(x, String(val), 900, 50, CARD_SANS, colW - 40);
+      x.fillText(String(val), cx + colW / 2, y + 62);
+      x.fillStyle = 'rgba(207,250,254,.75)';
+      x.font = `500 26px ${CARD_SANS}`;
+      x.fillText(label, cx + colW / 2, y + 100);
+    });
+    y += 175;
+    // 稱號
+    const hl = c.highlights.slice(0, 2);
+    const footer = Ht - 50;
+    const listBottom = footer - 30 - hl.length * 58;
+    const n = Math.max(1, c.players.length);
+    const rowH = Math.min(70, (listBottom - y) / n);
+    x.textAlign = 'left';
+    c.players.forEach((p, i) => {
+      const ry = y + rowH * i + rowH * 0.7;
+      x.fillStyle = '#ecfeff';
+      const namePx = fitFont(x, p.name, 900, Math.min(36, rowH * 0.62), CARD_SANS, 260);
+      x.font = `900 ${namePx}px ${CARD_SANS}`;
+      x.fillText(p.name, 80, ry);
+      x.fillStyle = '#facc15';
+      fitFont(x, p.title, 900, Math.min(36, rowH * 0.62), CARD_SERIF, 640);
+      x.fillText(p.title, 360, ry);
+    });
+    // 精華
+    let hy = listBottom + 40;
+    hl.forEach((h) => {
+      x.fillStyle = '#a5f3fc';
+      const t = `${h.icon} ${h.title}：${h.text}`;
+      fitFont(x, t, 500, 30, CARD_SANS, 940);
+      x.fillText(t, 70, hy);
+      hy += 58;
+    });
+    x.textAlign = 'center';
+    x.fillStyle = 'rgba(207,250,254,.55)';
+    x.font = `500 26px ${CARD_SANS}`;
+    x.fillText(`🤿 ${location.host || '深海大亂潛'}`, Wd / 2, footer);
+    return new Promise((res) => cv.toBlob(res, 'image/png'));
+  }
+  let cardUrl = null;
+  let cardBlob = null;
+  $('btn-card').addEventListener('click', async () => {
+    if (!state.card) return;
+    const btn = $('btn-card');
+    btn.disabled = true;
+    btn.textContent = '📸 製作中……';
+    try {
+      cardBlob = await drawCard(state.card);
+      if (cardUrl) URL.revokeObjectURL(cardUrl);
+      cardUrl = URL.createObjectURL(cardBlob);
+      $('card-img').src = cardUrl;
+      $('btn-card-dl').href = cardUrl;
+      const file = new File([cardBlob], '深海大亂潛-成績卡.png', { type: 'image/png' });
+      $('btn-card-share').classList.toggle('hidden', !(navigator.canShare && navigator.canShare({ files: [file] })));
+      $('card-modal').classList.remove('hidden');
+    } catch (e) {
+      toast('成績卡做不出來，換個瀏覽器試試');
+    }
+    btn.disabled = false;
+    btn.textContent = '📸 存成績卡（分享到群組）';
+  });
+  $('btn-card-share').addEventListener('click', async () => {
+    if (!cardBlob) return;
+    try {
+      await navigator.share({ files: [new File([cardBlob], '深海大亂潛-成績卡.png', { type: 'image/png' })], title: '深海大亂潛' });
+    } catch (e) { /* 取消分享 */ }
+  });
+  $('btn-card-close').addEventListener('click', () => $('card-modal').classList.add('hidden'));
+  $('card-modal').addEventListener('click', (e) => { if (e.target.id === 'card-modal') $('card-modal').classList.add('hidden'); });
 
   let lastResultSolo = false;
   $('btn-again').addEventListener('click', () => {
@@ -1002,10 +1378,41 @@
   // 單人練習：AI 潛伴用語音喊你，機關都在自己手上
   // =========================================================
   const SOLO_LEVELS = {
-    easy: { label: '🐠 體驗潛水', count: 6, conc: 1, ms: [9000, 6500], wrong: 2, timeout: 4, bonus: 3, rate: 1.0, hide: 0, accidents: false, chaosMs: 0 },
-    medium: { label: '🐬 進階潛水員', count: 6, conc: 2, ms: [9500, 6500], wrong: 4, timeout: 6, bonus: 2, rate: 1.1, hide: 0, accidents: false, chaosMs: 30000 },
-    hard: { label: '🦈 技術潛水', count: 6, conc: 2, ms: [10000, 6500], wrong: 5, timeout: 8, bonus: 1, rate: 1.2, hide: 0.45, accidents: true, chaosMs: 45000 },
+    easy: { label: '🐠 體驗潛水', count: 6, conc: 1, ms: [9000, 6500], wrong: 2, timeout: 4, bonus: 3, rate: 1.0, hide: 0, accidents: false, chaosMs: 0, breakMs: 22000, breaks: ['barnacle'] },
+    medium: { label: '🐬 進階潛水員', count: 6, conc: 2, ms: [9500, 6500], wrong: 4, timeout: 6, bonus: 2, rate: 1.1, hide: 0, accidents: false, chaosMs: 30000, breakMs: 16000, breaks: ['barnacle', 'smudge'] },
+    hard: { label: '🦈 技術潛水', count: 6, conc: 2, ms: [10000, 6500], wrong: 5, timeout: 8, bonus: 1, rate: 1.2, hide: 0.45, accidents: true, chaosMs: 45000, breakMs: 12000, breaks: ['barnacle', 'smudge'] },
   };
+  const SOLO_STAGES = 3;            // 計時模式分 3 個潛點
+  const SOLO_ENDLESS_STAGE_MS = 60000; // 無盡模式每 60 秒換一個潛點
+  const SOLO_SURFACE_MS = 6000;
+  const SITES = {
+    first: [
+      { name: '小琉球・海龜村', emoji: '🐢', line: '先暖身，別被海龜笑' },
+      { name: '墾丁・後壁湖', emoji: '🐠', line: '水很淺，丟臉會被看光光' },
+    ],
+    middle: [
+      { name: '綠島・大香菇', emoji: '🍄', line: '水流開始變大，抓緊裝備' },
+      { name: '東北角・龍洞', emoji: '🐉', line: '浪有點兇，機關換一批新的' },
+      { name: '蘭嶼・八代灣沉船', emoji: '🚢', line: '沉船裡的機關都長藤壺了' },
+    ],
+    final: [
+      { name: '深藍・無底斷崖', emoji: '🌌', line: '最後一潛！指令只會更快' },
+      { name: '綠島・夜潛', emoji: '🔦', line: '黑漆漆的，喊大聲一點' },
+    ],
+  };
+  function soloSite(i) {
+    if (SOLO.sites[i]) return SOLO.sites[i];
+    let site;
+    if (i === 0) site = pick(SITES.first);
+    else if (SOLO.mode === 'timed' && i === SOLO_STAGES - 1) site = pick(SITES.final);
+    else {
+      const prev = SOLO.sites[i - 1];
+      const opts = (SOLO.mode === 'timed' ? SITES.middle : SITES.middle.concat(SITES.final)).filter((x) => x !== prev);
+      site = pick(opts);
+    }
+    SOLO.sites[i] = site;
+    return site;
+  }
   const SOLO_TIMED_MS = (/[?&]debug/.test(location.search) && Number(new URLSearchParams(location.search).get('solosec')) * 1000) || 180000; // 測試用可縮短
   const BUDDIES = [
     { e: '🐢', n: '龜龜教練', pitch: 0.75 },
@@ -1132,8 +1539,7 @@
     renderSoloSetup();
   });
   $('solo-music').addEventListener('change', (e) => {
-    if (e.target.checked !== DiveMusic.enabled) DiveMusic.toggle();
-    paintMusicBtn();
+    if (e.target.checked !== DiveMusic.enabled) toggleMusic();
   });
   $('btn-solo-start').addEventListener('click', () => startSolo());
 
@@ -1190,6 +1596,8 @@
       relayState: new Map(), stats: { completed: 0, failed: 0, wrong: 0, combo: 0, bestCombo: 0, react: [] },
       startAt: 0, nextOrderAt: 0, lastDevice: null, lastPenaltyAt: 0, chaos: false, lastAccidentAt: 0,
       progress: 0, extra: 0, tick: null, ended: false,
+      pool, stage: 0, sites: [], surfaceAt: 0, surfaceUntil: 0, nextBreakAt: 0,
+      log: { drops: [], devTimeouts: new Map(), fastest: null, stageDone: [0], fiddles: 0, scrubbed: 0, slowScrub: 0 },
     });
     lastResultSolo = true;
     state.level = level;
@@ -1203,12 +1611,14 @@
     $('solo-orders').classList.remove('hidden');
     $('solo-orders').innerHTML = '';
     $('instruction-text').innerHTML = '';
-    $('level-chip').textContent = `${L.label}｜${SOLO.mode === 'timed' ? '計時' : '無盡'}`;
     $('timer-label').textContent = SOLO.mode === 'timed' ? '剩餘潛水時間' : '已潛時間';
-    devices.clear();
-    const panel = $('panel');
-    panel.innerHTML = '';
-    SOLO.mine.forEach((d) => panel.appendChild(createDevice({ ...d, mode: soloMode(level, d), value: soloInitial(level, d) })));
+    state.timerFrozen = null;
+    state.surface = false;
+    hideSurface();
+    const site = soloSite(0);
+    state.stageInfo = { label: `${L.label}｜${SOLO.mode === 'timed' ? '計時' : '無盡'}`, stage: 0, stages: SOLO.mode === 'timed' ? SOLO_STAGES : null, site };
+    paintChip();
+    rebuildPanel(SOLO.mine.map((d) => ({ ...d, mode: soloMode(level, d), value: soloInitial(level, d) })), false);
     showScreen('game');
     setStability(AIR_FULL);
     renderOrders();
@@ -1221,16 +1631,40 @@
     SOLO.startAt = performance.now();
     state.timerEnd = SOLO.startAt + SOLO_TIMED_MS;
     SOLO.nextOrderAt = SOLO.startAt + 300;
+    SOLO.nextBreakAt = SOLO.startAt + SOLO.L.breakMs * 0.7;
     SOLO.tick = setInterval(soloTick, 150);
   }
 
   function soloTick() {
     if (!SOLO.running) return;
     const now = performance.now();
-    const elapsed = now - SOLO.startAt;
     const L = SOLO.L;
     const timed = SOLO.mode === 'timed';
+    // 水面休息中
+    if (SOLO.surfaceUntil) {
+      if (now < SOLO.surfaceUntil) return;
+      const rest = now - SOLO.surfaceAt;
+      SOLO.surfaceUntil = 0;
+      SOLO.startAt += rest; // 休息不算潛水時間
+      state.timerEnd += rest;
+      state.timerFrozen = null;
+      state.surface = false;
+      hideSurface();
+      SOLO.nextOrderAt = now + 500;
+      SOLO.lastAccidentAt = now;
+      SOLO.nextBreakAt = now + L.breakMs * 0.6;
+      renderOrders();
+      sfx.beep();
+      return;
+    }
+    const elapsed = now - SOLO.startAt;
     if (timed && elapsed >= SOLO_TIMED_MS) return endSolo('timeup');
+    const stageLen = timed ? SOLO_TIMED_MS / SOLO_STAGES : SOLO_ENDLESS_STAGE_MS;
+    if ((!timed || SOLO.stage < SOLO_STAGES - 1) && elapsed >= (SOLO.stage + 1) * stageLen) return soloSurface(now, elapsed);
+    if (L.breakMs && now >= SOLO.nextBreakAt) {
+      SOLO.nextBreakAt = now + L.breakMs * (0.75 + Math.random() * 0.5);
+      soloBreakdown(now);
+    }
     SOLO.progress = Math.min(1, elapsed / SOLO_TIMED_MS);
     SOLO.extra = timed ? 0 : Math.min(0.6, Math.max(0, (elapsed - SOLO_TIMED_MS) / 200000));
 
@@ -1263,6 +1697,56 @@
     if (SOLO.orders.length < conc && now >= SOLO.nextOrderAt) {
       issueSoloOrder(now, elapsed);
       SOLO.nextOrderAt = now + 700 + Math.random() * (SOLO.chaos ? 700 : 1500);
+    }
+  }
+
+  /** 單人：換潛點 */
+  function soloSurface(now, elapsed) {
+    const L = SOLO.L;
+    const timed = SOLO.mode === 'timed';
+    SOLO.stage++;
+    SOLO.log.stageDone[SOLO.stage] = 0;
+    SOLO.surfaceAt = now;
+    SOLO.surfaceUntil = now + SOLO_SURFACE_MS;
+    state.surface = true;
+    state.timerFrozen = timed ? Math.max(0, SOLO_TIMED_MS - elapsed) : elapsed;
+    if (canSpeak) speechSynthesis.cancel();
+    for (const o of SOLO.orders.slice()) removeOrder(o); // 作廢，不扣氣
+    SOLO.chaos = false;
+    accidentTimers.forEach(clearTimeout);
+    const used = new Set(SOLO.mine.map((d) => d.id));
+    const next = [...mixTypes(SOLO.pool.filter((d) => !used.has(d.id))), ...mixTypes(SOLO.pool.filter((d) => used.has(d.id)))];
+    SOLO.mine = next.slice(0, L.count);
+    SOLO.relayPool = next.slice(L.count);
+    SOLO.lastDevice = null;
+    rebuildPanel(SOLO.mine.map((d) => ({ ...d, mode: soloMode(SOLO.level, d), value: soloInitial(SOLO.level, d) })), true);
+    const bonus = Math.min(5, AIR_FULL - SOLO.air);
+    SOLO.air += bonus;
+    setStability(SOLO.air);
+    const site = soloSite(SOLO.stage);
+    state.stageInfo = { ...state.stageInfo, stage: SOLO.stage, site };
+    paintChip();
+    showSurface({ stage: SOLO.stage, stages: timed ? SOLO_STAGES : null, site, ms: SOLO_SURFACE_MS, bonus });
+  }
+
+  /** 單人：機關故障（藤壺、糊字） */
+  function soloBreakdown(now) {
+    const ids = [...devices.keys()].filter((id) => !devices.get(id).barnacle);
+    if (!ids.length) return;
+    const hot = SOLO.orders.filter((o) => !o.relay && ids.includes(o.deviceId)).map((o) => o.deviceId);
+    const id = hot.length && Math.random() < 0.6 ? pick(hot) : pick(ids);
+    const kind = pick(SOLO.L.breaks);
+    if (kind === 'barnacle') {
+      const at = now;
+      addBarnacle(id, SOLO.level === 'hard' ? 9 : 7, () => {
+        SOLO.log.scrubbed++;
+        SOLO.log.slowScrub = Math.max(SOLO.log.slowScrub, performance.now() - at);
+      });
+      setTimeout(() => clearBarnacle(id, false), 25000);
+      toast('🐚 有機關被藤壺黏住了！搓掉才能用');
+    } else {
+      smudgeDevice(id, 12000);
+      toast('💧 機關名牌被水糊掉了！聽潛伴喊的名字猜');
     }
   }
 
@@ -1350,7 +1834,9 @@
   }
 
   function changeAir(delta) {
+    const before = SOLO.air;
     SOLO.air = Math.max(AIR_EMPTY, Math.min(AIR_FULL, SOLO.air + delta));
+    if (SOLO.air < before) SOLO.log.drops.push([SOLO.stage, performance.now() - SOLO.startAt, before - SOLO.air]);
     setStability(SOLO.air);
     if (delta < 0) damageFx();
     if (SOLO.air <= AIR_EMPTY) endSolo('collapse');
@@ -1362,6 +1848,11 @@
     st.combo++;
     st.bestCombo = Math.max(st.bestCombo, st.combo);
     if (o.startedAt) st.react.push(performance.now() - o.startedAt);
+    SOLO.log.stageDone[SOLO.stage] = (SOLO.log.stageDone[SOLO.stage] || 0) + 1;
+    if (!o.relay && o.startedAt) {
+      const ms = performance.now() - o.startedAt;
+      if (!SOLO.log.fastest || ms < SOLO.log.fastest.ms) SOLO.log.fastest = { ms, device: o.dev.name };
+    }
     removeOrder(o);
     flashSuccess();
     toast(`${o.buddy.e} ${o.buddy.n}：${pick(THANKS)}${st.combo >= 3 ? `（${st.combo} 連擊！）` : ''}`);
@@ -1370,6 +1861,7 @@
 
   function soloTimeout(o) {
     SOLO.stats.failed++;
+    if (!o.relay) SOLO.log.devTimeouts.set(o.dev.name, (SOLO.log.devTimeouts.get(o.dev.name) || 0) + 1);
     SOLO.stats.combo = 0;
     removeOrder(o);
     sfx.timeout();
@@ -1378,7 +1870,7 @@
   }
 
   function soloOperate(id, value) {
-    if (!SOLO.running) return;
+    if (!SOLO.running || SOLO.surfaceUntil) return;
     const dv = devices.get(id);
     const o = SOLO.orders.find((x) => !x.relay && x.deviceId === id);
     if (o && targetMatches(o.target, value)) {
@@ -1392,6 +1884,7 @@
       return;
     }
     if (o) {
+      SOLO.log.fiddles++;
       const old = dv.el.querySelector('.hint');
       if (old) old.remove();
       const hint = document.createElement('span');
@@ -1450,6 +1943,7 @@
   function endSolo(reason) {
     if (!SOLO.running) return;
     SOLO.running = false;
+    SOLO.surfaceUntil = 0;
     clearInterval(SOLO.tick);
     if (canSpeak) speechSynthesis.cancel();
     SOLO.orders.forEach((o) => { if (o.recog) try { o.recog.abort(); } catch (e) { /* 略過 */ } });
@@ -1513,6 +2007,17 @@
         <span class="who">${esc(b.n)}</span>
         <span class="why">「${esc(quotes[i % quotes.length])}」</span>
       </li>`).join('')}`;
+    const hl = soloHighlights();
+    renderHighlights(hl);
+    state.card = {
+      kind: outcome,
+      level: `${L.label}｜${r.mode === 'timed' ? '計時 3 分鐘' : '無盡下潛'}`,
+      reason: reasons[r.reason] || '',
+      rank: `${title}${r.isRecord ? '　🎉新紀錄' : ''}`,
+      stats: [['完成', st.completed], ['逾時', st.failed], ['亂按', st.wrong], ['得分', r.score.toLocaleString()]],
+      players: [{ name: (nameInput.value.trim() || '我'), title: why }].concat(BUDDIES.slice(0, 3).map((b, i) => ({ name: `${b.e} ${b.n}`, title: `「${quotes[i % quotes.length]}」` }))),
+      highlights: hl,
+    };
     $('btn-again').textContent = '🔁 再潛一次';
     $('btn-again').classList.remove('hidden');
     $('result-wait').classList.add('hidden');
@@ -1522,6 +2027,31 @@
     if (r.isRecord) setTimeout(() => sfx.success(), 600);
   }
 
+  function soloHighlights() {
+    const log = SOLO.log;
+    const out = [];
+    const site = (i) => (SOLO.sites[i] ? SOLO.sites[i].name : '');
+    let worst = null;
+    log.drops.forEach(([stg, t], i) => {
+      let sum = 0;
+      for (let j = i; j < log.drops.length && log.drops[j][0] === stg && log.drops[j][1] - t <= 10000; j++) sum += log.drops[j][2];
+      if (!worst || sum > worst.sum) worst = { stg, sum };
+    });
+    if (worst && worst.sum >= 10) out.push({ icon: '💥', title: '最慘一刻', text: `第 ${worst.stg + 1} 潛（${site(worst.stg)}）10 秒內噴掉 ${worst.sum} bar` });
+    const cursed = [...log.devTimeouts].sort((a, b) => b[1] - a[1])[0];
+    if (cursed && cursed[1] >= 2) out.push({ icon: '👹', title: '最難搞的機關', text: `「${cursed[0]}」讓你逾時 ${cursed[1]} 次` });
+    if (log.fastest && log.fastest.ms < 3500) out.push({ icon: '⚡', title: '最快的一次', text: `只花 ${(log.fastest.ms / 1000).toFixed(1)} 秒就搞定「${log.fastest.device}」` });
+    if (log.fiddles >= 4) out.push({ icon: '🔧', title: '調到天荒地老', text: `調了 ${log.fiddles} 次才調對，機關都快轉壞了` });
+    if (log.scrubbed >= 2) out.push({ icon: '🐚', title: '藤壺清潔工', text: `搓掉 ${log.scrubbed} 坨藤壺，可以去沉船打工了` });
+    else if (log.slowScrub > 7000) out.push({ icon: '🐚', title: '跟藤壺奮戰', text: `一坨藤壺搓了 ${(log.slowScrub / 1000).toFixed(0)} 秒` });
+    if (SOLO.sites.length > 1) {
+      let best = 0;
+      log.stageDone.forEach((n, i) => { if (n > (log.stageDone[best] || 0)) best = i; });
+      if (log.stageDone[best] > 0) out.push({ icon: SOLO.sites[best].emoji, title: '手感最好的潛點', text: `${site(best)}：完成 ${log.stageDone[best]} 條` });
+    }
+    return out.slice(0, 4);
+  }
+
   function leaveSoloUi() {
     if (SOLO.running) { SOLO.running = false; clearInterval(SOLO.tick); if (canSpeak) speechSynthesis.cancel(); }
     SOLO.active = false;
@@ -1529,5 +2059,8 @@
     $('solo-orders').classList.add('hidden');
     $('solo-orders').innerHTML = '';
     $('timer-label').textContent = '剩餘潛水時間';
+    state.timerFrozen = null;
+    state.surface = false;
+    hideSurface();
   }
 })();
