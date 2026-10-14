@@ -1,224 +1,286 @@
 /* =========================================================
-   失控魔法工廠 — 自訂樣式（Tailwind 處理不了的質感與動畫）
+   深海大亂潛 — 自訂樣式（海洋風格、裝備質感與動畫）
    想換成 AI 生成的底圖：把圖片放進 public/assets/，
    再把下面兩個變數改成 url('../assets/你的檔名.png')
    ========================================================= */
 :root {
-  --factory-art: none; /* 例：url('../assets/factory-bg.png') */
-  --panel-art: none;   /* 例：url('../assets/panel.png') */
-  --brass: #c9952f;
-  --brass-dark: #7a5517;
-  --wood-1: #3a2414;
-  --wood-2: #2a190d;
-  --parchment: #f1dfb4;
+  --ocean-art: none; /* 例：url('../assets/ocean-bg.png') */
+  --panel-art: none; /* 例：url('../assets/gear-panel.png') */
+  --deep: #04121f;
+  --mid: #0a3557;
+  --cyan: #22d3ee;
+  --cyan-dark: #0e7490;
+  --orange: #ff8a00;
+  --yellow: #facc15;
+  --slate: #f4f1e6;
+  --rubber: #1b2733;
 }
 
 html, body { height: 100%; overscroll-behavior: none; }
 body { touch-action: manipulation; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
 input { user-select: text; -webkit-user-select: text; }
+.screen { z-index: 1; }
 .screen.hidden { display: none !important; }
 .screen:not(.hidden) { display: flex; }
 
-/* ---------- 背景：蒸汽龐克 × 奇幻 ---------- */
-.factory-bg {
+/* ---------- 海洋背景：深淺漸層 + 水面光線 + 氣泡 ---------- */
+.ocean-bg {
+  z-index: 0;
   background:
-    var(--factory-art) center / cover no-repeat,
-    radial-gradient(circle at 20% 15%, rgba(64, 224, 208, .18), transparent 35%),
-    radial-gradient(circle at 85% 80%, rgba(186, 85, 211, .22), transparent 40%),
-    radial-gradient(circle at 50% 50%, #2b1a0e, #120c08 75%);
+    var(--ocean-art) center / cover no-repeat,
+    radial-gradient(ellipse 120% 40% at 50% -5%, rgba(125, 211, 252, .45), transparent 60%),
+    linear-gradient(180deg, #0e4a75 0%, var(--mid) 30%, #072540 65%, var(--deep) 100%);
+  overflow: hidden;
 }
-.glow-title { color: #fde68a; text-shadow: 0 0 10px rgba(251, 191, 36, .7), 0 0 30px rgba(168, 85, 247, .5); }
-.title-gear { animation: spin 8s linear infinite; filter: drop-shadow(0 0 12px rgba(251, 191, 36, .6)); width: fit-content; }
-@keyframes spin { to { transform: rotate(360deg); } }
+.ocean-bg::before { /* 從水面灑下的光束 */
+  content: ''; position: absolute; inset: -20% -40% 30%;
+  background: repeating-linear-gradient(100deg, rgba(186, 230, 253, .10) 0 3%, transparent 3% 9%, rgba(186, 230, 253, .06) 9% 11%, transparent 11% 18%);
+  transform-origin: top center;
+  -webkit-mask: linear-gradient(180deg, #000, transparent 85%);
+          mask: linear-gradient(180deg, #000, transparent 85%);
+  animation: rays 9s ease-in-out infinite alternate;
+}
+@keyframes rays { from { transform: skewX(-6deg) translateX(-3%); opacity: .8; } to { transform: skewX(6deg) translateX(3%); opacity: 1; } }
 
-.brass-card {
-  background: linear-gradient(160deg, rgba(58, 36, 20, .92), rgba(26, 16, 9, .92));
-  border: 2px solid var(--brass-dark);
+.bubbles { z-index: 0; pointer-events: none; overflow: hidden; }
+.bubbles span {
+  position: absolute; bottom: -40px; border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, .9), rgba(186, 230, 253, .25) 40%, rgba(186, 230, 253, .08) 70%);
+  border: 1px solid rgba(224, 242, 254, .45);
+  animation: rise linear infinite;
+}
+@keyframes rise {
+  0% { transform: translate(0, 0); opacity: 0; }
+  10% { opacity: .9; }
+  50% { transform: translate(14px, -55vh); }
+  100% { transform: translate(-10px, -115vh); opacity: 0; }
+}
+
+.glow-title { color: #e0f7ff; text-shadow: 0 0 10px rgba(34, 211, 238, .8), 0 0 30px rgba(14, 116, 144, .9); }
+.title-diver { width: fit-content; animation: bob 3s ease-in-out infinite; filter: drop-shadow(0 0 14px rgba(34, 211, 238, .7)); }
+@keyframes bob { 50% { transform: translateY(-10px) rotate(-6deg); } }
+
+.glass-card {
+  background: linear-gradient(160deg, rgba(14, 74, 117, .55), rgba(4, 18, 31, .78));
+  border: 1.5px solid rgba(103, 232, 249, .35);
   border-radius: 1.25rem;
-  box-shadow: inset 0 0 0 1px rgba(253, 230, 138, .15), 0 10px 30px rgba(0, 0, 0, .5);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  box-shadow: inset 0 1px 0 rgba(224, 242, 254, .15), 0 10px 30px rgba(0, 0, 0, .45);
 }
 
 .btn-primary, .btn-secondary {
   border-radius: 1rem; padding: .9rem 1.25rem; font-weight: 900; font-size: 1.15rem;
   transition: transform .08s, filter .2s, box-shadow .08s;
 }
-.btn-primary {
-  color: #2a1606;
-  background: linear-gradient(180deg, #fde68a, #d99a1e 60%, #a86c0c);
-  box-shadow: 0 5px 0 #6b4207, 0 0 20px rgba(251, 191, 36, .35);
+.btn-primary { /* 潛水裝備的安全橘 */
+  color: #2a1300;
+  background: linear-gradient(180deg, #ffc56b, var(--orange) 60%, #d96c00);
+  box-shadow: 0 5px 0 #8a4300, 0 0 20px rgba(255, 138, 0, .35);
 }
 .btn-secondary {
-  color: #f0fdfa;
-  background: linear-gradient(180deg, #5eead4, #0f766e);
+  color: #ecfeff;
+  background: linear-gradient(180deg, #67e8f9, var(--cyan-dark));
   box-shadow: 0 5px 0 #134e4a;
 }
-.btn-primary:active, .btn-secondary:active { transform: translateY(4px); box-shadow: 0 1px 0 #6b4207; }
+.btn-primary:active, .btn-secondary:active { transform: translateY(4px); box-shadow: 0 1px 0 #8a4300; }
 .btn-primary:disabled { filter: grayscale(.9) brightness(.6); transform: none; }
 
 .stat-cell { display: flex; flex-direction: column; background: rgba(0, 0, 0, .3); border-radius: .75rem; padding: .5rem 0; }
-.stat-cell small { font-size: .7rem; color: rgba(253, 230, 138, .7); }
+.stat-cell small { font-size: .7rem; color: rgba(207, 250, 254, .7); }
 
-/* ---------- 頂部狀態區 ---------- */
+/* ---------- 頂部狀態區：氣瓶壓力錶 ---------- */
 .status-bar {
-  background: linear-gradient(180deg, #2f1d10, #1a0f07);
-  border-bottom: 3px solid var(--brass-dark);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, .6);
   position: relative; z-index: 5;
+  background: linear-gradient(180deg, #0b2f4a, #061a2b);
+  border-bottom: 3px solid var(--cyan-dark);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .6);
 }
-.stability-track { background: rgba(0, 0, 0, .55); box-shadow: inset 0 2px 4px rgba(0, 0, 0, .8); border: 1px solid var(--brass-dark); }
+.stability-track { background: rgba(0, 0, 0, .55); box-shadow: inset 0 2px 4px rgba(0, 0, 0, .8); border: 1px solid var(--cyan-dark); }
 .stability-fill {
   width: 100%;
   background: var(--stab-color, #22c55e); /* 整條單色：綠 → 黃 → 紅 */
   box-shadow: 0 0 10px var(--stab-color, #22c55e);
   transition: width .35s ease, background .35s;
 }
-.timer-box { background: rgba(0, 0, 0, .45); border: 1px solid var(--brass-dark); min-width: 4.5rem; }
+.timer-box { background: rgba(0, 0, 0, .45); border: 1px solid var(--cyan-dark); min-width: 4.5rem; }
 .timer-box.urgent #game-timer { color: #f87171; animation: pulse .8s ease-in-out infinite; }
 @keyframes pulse { 50% { transform: scale(1.15); } }
 
-/* ---------- 指令區：羊皮紙＋發光魔法陣 ---------- */
-.parchment {
-  background:
-    radial-gradient(ellipse at center, rgba(255, 248, 225, .9), transparent 70%),
-    radial-gradient(circle at 10% 20%, rgba(120, 72, 20, .25), transparent 30%),
-    radial-gradient(circle at 90% 85%, rgba(120, 72, 20, .3), transparent 30%),
-    linear-gradient(180deg, #f6e7c1, var(--parchment) 50%, #dcc28a);
-  box-shadow: inset 0 0 40px rgba(92, 51, 13, .55);
-}
-.magic-circle {
-  position: absolute; width: 85%; aspect-ratio: 1; left: 50%; top: 50%;
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
-  background:
-    repeating-conic-gradient(from 0deg, rgba(168, 85, 247, .18) 0 6deg, transparent 6deg 15deg);
-  -webkit-mask: radial-gradient(circle, transparent 54%, #000 55%, #000 62%, transparent 63%, transparent 70%, #000 71%, #000 72%, transparent 73%);
-          mask: radial-gradient(circle, transparent 54%, #000 55%, #000 62%, transparent 63%, transparent 70%, #000 71%, #000 72%, transparent 73%);
-  animation: circle-spin 24s linear infinite;
-  filter: drop-shadow(0 0 6px rgba(168, 85, 247, .6));
-  pointer-events: none;
-}
-@keyframes circle-spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
+/* 氣量低於 50 bar：錶頭閃紅燈 */
+#app.low-air #air-label, #app.low-air #stability-text { color: #fca5a5; animation: blink .5s steps(2) infinite; }
+#app.low-air .stability-track { border-color: #ef4444; box-shadow: 0 0 10px rgba(239, 68, 68, .8); }
 
-.instruction-text { font-size: clamp(1.4rem, 7vw, 2rem); text-shadow: 0 1px 0 rgba(255, 255, 255, .6); text-wrap: balance; }
-.instruction-text.long { font-size: clamp(1.15rem, 5.6vw, 1.6rem); }
+/* ---------- 指令區：水下寫字板 + 聲納 ---------- */
+.slate {
+  background:
+    repeating-linear-gradient(180deg, transparent 0 27px, rgba(11, 42, 61, .07) 27px 28px),
+    radial-gradient(ellipse at 50% 40%, #fffdf5, var(--slate) 60%, #ddd6bf);
+  box-shadow: inset 0 0 0 6px #e8e1c9, inset 0 0 0 8px rgba(11, 42, 61, .25), inset 0 0 30px rgba(11, 42, 61, .25);
+}
+.slate::before, .slate::after { /* 寫字板的掛繩孔 */
+  content: ''; position: absolute; top: 12px; width: 14px; height: 14px; border-radius: 50%;
+  background: radial-gradient(circle, #9ca3af 30%, #4b5563 70%); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .6);
+}
+.slate::before { left: 14px; }
+.slate::after { right: 14px; }
+
+.sonar { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; }
+.sonar i {
+  position: absolute; left: 50%; top: 50%; width: 80vmin; max-width: 420px; aspect-ratio: 1; border-radius: 50%;
+  border: 2px solid rgba(14, 116, 144, .35);
+  transform: translate(-50%, -50%) scale(.1); opacity: 0;
+  animation: ping 4.5s ease-out infinite;
+}
+.sonar i:nth-child(2) { animation-delay: 1.5s; }
+.sonar i:nth-child(3) { animation-delay: 3s; }
+@keyframes ping { 0% { transform: translate(-50%, -50%) scale(.1); opacity: .9; } 100% { transform: translate(-50%, -50%) scale(1.3); opacity: 0; } }
+
+.instruction-text { font-size: clamp(1.35rem, 6.8vw, 1.95rem); text-wrap: balance; }
+.instruction-text.long { font-size: clamp(1.1rem, 5.4vw, 1.55rem); }
 .instruction-text .dev-name {
-  color: #7c2d12; background: rgba(251, 191, 36, .35);
+  color: #9a3412; background: rgba(250, 204, 21, .45);
   padding: 0 .2em; border-radius: .3em; box-decoration-break: clone; -webkit-box-decoration-break: clone;
 }
+.instruction-text .dir { color: #fff; background: #dc2626; padding: 0 .25em; border-radius: .3em; }
 .instruction-text.pop { animation: pop .35s cubic-bezier(.2, 1.6, .4, 1); }
 @keyframes pop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-.instruction-text.muted { color: #6b4a2b; font-size: 1.15rem; }
+.instruction-text.muted { color: #335466; font-size: 1.15rem; }
 
-.instr-bar { background: linear-gradient(90deg, #7c3aed, #c084fc); box-shadow: 0 0 8px rgba(168, 85, 247, .8); }
+.instr-bar { background: linear-gradient(90deg, #0891b2, #67e8f9); box-shadow: 0 0 8px rgba(34, 211, 238, .8); }
 .instr-bar.warn { background: linear-gradient(90deg, #ea580c, #facc15); }
 .instr-bar.danger { background: linear-gradient(90deg, #b91c1c, #f87171); animation: blink .4s steps(2) infinite; }
-@keyframes blink { 50% { opacity: .5; } }
+@keyframes blink { 50% { opacity: .45; } }
 
-/* ---------- 操作區：深色木紋＋黃銅鉚釘 ---------- */
-.wood-panel {
+/* ---------- 操作區：潛水裝備面板（防寒衣布料 + 橡膠外殼） ---------- */
+.gear-panel {
+  position: relative; z-index: 1;
   background:
     var(--panel-art) center / cover no-repeat,
-    repeating-linear-gradient(92deg, rgba(0, 0, 0, .18) 0 2px, transparent 2px 11px),
-    repeating-linear-gradient(88deg, rgba(255, 200, 140, .05) 0 1px, transparent 1px 23px),
-    linear-gradient(180deg, var(--wood-1), var(--wood-2));
-  border-top: 4px solid var(--brass-dark);
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, .025) 0 2px, transparent 2px 6px),
+    repeating-linear-gradient(-45deg, rgba(0, 0, 0, .25) 0 2px, transparent 2px 6px),
+    linear-gradient(180deg, #0d2233, #07131e);
+  border-top: 4px solid var(--cyan-dark);
   box-shadow: inset 0 10px 25px rgba(0, 0, 0, .7);
 }
 .device {
   position: relative; display: flex; flex-direction: column; align-items: center; justify-content: space-between;
-  padding: .55rem .5rem .7rem; border-radius: 1rem; min-height: 0;
-  background: linear-gradient(160deg, #4a4f55, #24282c 60%, #1a1d20);
-  border: 2px solid #6b5426;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .15), inset 0 -3px 8px rgba(0, 0, 0, .5), 0 4px 10px rgba(0, 0, 0, .6);
+  padding: .55rem .5rem .7rem; border-radius: 1.1rem; min-height: 0;
+  background: linear-gradient(160deg, #2b3b4a, var(--rubber) 55%, #121a22);
+  border: 2px solid #3d5366;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12), inset 0 -3px 8px rgba(0, 0, 0, .5), 0 4px 10px rgba(0, 0, 0, .6);
 }
-/* 四角鉚釘 */
-.device::before, .device::after {
+.device::before, .device::after { /* 不鏽鋼螺絲 */
   content: ''; position: absolute; width: 7px; height: 7px; border-radius: 50%; top: 6px;
-  background: radial-gradient(circle at 35% 35%, #fde68a, #8a6320);
+  background: radial-gradient(circle at 35% 35%, #f1f5f9, #64748b);
 }
 .device::before { left: 6px; }
 .device::after { right: 6px; }
-.device-plate {
+.device-plate { /* 黃色裝備標籤 */
   width: 100%; text-align: center; font-weight: 900; line-height: 1.2;
-  font-size: clamp(.78rem, 3.6vw, .95rem);
-  color: #fef3c7; padding: .3rem .4rem; border-radius: .5rem;
-  background: linear-gradient(180deg, #8a6320, #5c3f12);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 2px 3px rgba(0, 0, 0, .5);
-  text-shadow: 0 1px 1px #000;
-  text-wrap: balance; /* 長名字平均分成兩行，不會掉一個字 */
+  font-size: clamp(.76rem, 3.5vw, .93rem);
+  color: #1a1a1a; padding: .3rem .4rem; border-radius: .5rem;
+  background: linear-gradient(180deg, #fde047, var(--yellow));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5), 0 2px 3px rgba(0, 0, 0, .5);
+  text-wrap: balance;
 }
 .device-body { flex: 1; width: 100%; display: flex; align-items: center; justify-content: center; min-height: 0; }
 .device.ok { animation: ok-glow .7s ease-out; }
-@keyframes ok-glow { 0% { box-shadow: 0 0 0 0 rgba(74, 222, 128, .9); } 100% { box-shadow: 0 0 0 18px rgba(74, 222, 128, 0); } }
+@keyframes ok-glow { 0% { box-shadow: 0 0 0 0 rgba(34, 211, 238, .9); } 100% { box-shadow: 0 0 0 18px rgba(34, 211, 238, 0); } }
 .device.bad { animation: bad-shake .35s; }
 @keyframes bad-shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
 
-/* 按鈕：發光水晶 */
+/* 按鈕：BC 充排氣鈕風格的橡膠大按鈕 */
 .magic-btn {
   width: min(26vw, 7.5rem); aspect-ratio: 1; border-radius: 50%;
-  background: radial-gradient(circle at 50% 55%, #1d1d1f, #000);
-  padding: 9%; border: 3px solid #a07a2c;
-  box-shadow: 0 6px 0 #4a3510, 0 8px 12px rgba(0, 0, 0, .6);
+  background: radial-gradient(circle at 50% 55%, #1f2937, #030712);
+  padding: 9%; border: 3px solid #94a3b8;
+  box-shadow: 0 6px 0 #334155, 0 8px 12px rgba(0, 0, 0, .6);
   transition: transform .06s, box-shadow .06s;
 }
 .magic-btn-core {
   display: block; width: 100%; height: 100%; border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #fff 0 6%, #67e8f9 14%, #0891b2 55%, #164e63 100%);
-  box-shadow: 0 0 18px rgba(103, 232, 249, .7), inset 0 -6px 10px rgba(0, 0, 0, .4);
-  animation: crystal 2.4s ease-in-out infinite;
+  background: radial-gradient(circle at 35% 30%, #fff 0 6%, #ffc56b 16%, var(--orange) 55%, #9a3412 100%);
+  box-shadow: 0 0 16px rgba(255, 138, 0, .6), inset 0 -6px 10px rgba(0, 0, 0, .4);
+  animation: glow 2.6s ease-in-out infinite;
 }
-.device:nth-child(2) .magic-btn-core { filter: hue-rotate(110deg); }
-.device:nth-child(3) .magic-btn-core { filter: hue-rotate(220deg); }
-.device:nth-child(4) .magic-btn-core { filter: hue-rotate(300deg); }
-@keyframes crystal { 50% { box-shadow: 0 0 30px rgba(103, 232, 249, 1), inset 0 -6px 10px rgba(0, 0, 0, .4); } }
-.magic-btn.is-pressed { transform: translateY(5px) scale(.96); box-shadow: 0 1px 0 #4a3510, 0 2px 4px rgba(0, 0, 0, .6); }
-.magic-btn.is-pressed .magic-btn-core { filter: brightness(1.8) saturate(1.4); }
+.device:nth-child(2) .magic-btn-core { filter: hue-rotate(160deg); }
+.device:nth-child(3) .magic-btn-core { filter: hue-rotate(30deg); }
+.device:nth-child(4) .magic-btn-core { filter: hue-rotate(280deg); }
+@keyframes glow { 50% { box-shadow: 0 0 28px rgba(255, 138, 0, 1), inset 0 -6px 10px rgba(0, 0, 0, .4); } }
+.magic-btn.is-pressed { transform: translateY(5px) scale(.96); box-shadow: 0 1px 0 #334155, 0 2px 4px rgba(0, 0, 0, .6); }
+.magic-btn.is-pressed .magic-btn-core { filter: brightness(1.7) saturate(1.3); }
 
-/* 開關：黃銅撥桿 */
+/* 開關：氣瓶閥門撥桿 */
 .lever { display: flex; flex-direction: column; align-items: center; gap: .35rem; background: none; border: 0; padding: 0; }
 .lever-track {
   position: relative; width: min(30vw, 8.5rem); height: min(13vw, 3.6rem); border-radius: 999px;
-  background: linear-gradient(180deg, #111, #2b2b2b); border: 3px solid #8a6320;
+  background: linear-gradient(180deg, #030712, #1f2937); border: 3px solid #94a3b8;
   box-shadow: inset 0 3px 8px rgba(0, 0, 0, .9);
   transition: background .25s;
 }
 .lever-knob {
   position: absolute; top: 50%; left: 6%; width: 42%; height: 120%;
-  transform: translateY(-50%) rotate(-12deg);
-  border-radius: .6rem;
-  background: linear-gradient(180deg, #fde68a, #c9952f 50%, #7a5517);
+  transform: translateY(-50%) rotate(-12deg); border-radius: .6rem;
+  background: linear-gradient(180deg, #fde047, var(--yellow) 50%, #a16207);
   box-shadow: 0 4px 6px rgba(0, 0, 0, .7), inset 0 1px 0 #fff8;
   transition: left .22s cubic-bezier(.3, 1.6, .5, 1), transform .22s;
 }
-.lever[aria-checked="true"] .lever-track { background: linear-gradient(180deg, #064e3b, #10b981); box-shadow: inset 0 3px 8px rgba(0, 0, 0, .6), 0 0 14px rgba(16, 185, 129, .7); }
+.lever[aria-checked="true"] .lever-track { background: linear-gradient(180deg, #164e63, var(--cyan)); box-shadow: inset 0 3px 8px rgba(0, 0, 0, .6), 0 0 14px rgba(34, 211, 238, .7); }
 .lever[aria-checked="true"] .lever-knob { left: 52%; transform: translateY(-50%) rotate(12deg); }
 .lever-labels { display: flex; width: min(30vw, 8.5rem); justify-content: space-between; font-size: .75rem; font-weight: 900; padding: 0 .4rem; }
 .lever-labels b:first-child { color: #fca5a5; }
-.lever-labels b:last-child { color: #86efac; }
+.lever-labels b:last-child { color: #67e8f9; }
 .lever[aria-checked="true"] .lever-labels b:first-child, .lever[aria-checked="false"] .lever-labels b:last-child { opacity: .35; }
 
-/* 滑桿：魔藥量表 */
+/* 滑桿 */
 .slider-wrap { width: 92%; }
 .magic-range { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; border-radius: 999px; outline: none;
-  background: linear-gradient(90deg, #a855f7 var(--fill, 0%), #111 var(--fill, 0%));
-  border: 2px solid #8a6320; box-shadow: inset 0 2px 5px rgba(0, 0, 0, .9);
+  background: linear-gradient(90deg, var(--cyan) var(--fill, 0%), #030712 var(--fill, 0%));
+  border: 2px solid #94a3b8; box-shadow: inset 0 2px 5px rgba(0, 0, 0, .9);
 }
 .magic-range::-webkit-slider-thumb {
   -webkit-appearance: none; width: 34px; height: 46px; border-radius: .5rem;
-  background: linear-gradient(90deg, #7a5517, #fde68a 45%, #c9952f 55%, #7a5517);
-  box-shadow: 0 3px 6px rgba(0, 0, 0, .8); border: 1px solid #3b2a0c;
+  background: linear-gradient(90deg, #c2410c, #ffc56b 45%, var(--orange) 55%, #c2410c);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, .8); border: 1px solid #431407;
 }
 .magic-range::-moz-range-thumb {
   width: 34px; height: 46px; border-radius: .5rem;
-  background: linear-gradient(90deg, #7a5517, #fde68a 45%, #c9952f 55%, #7a5517); border: 1px solid #3b2a0c;
+  background: linear-gradient(90deg, #c2410c, #ffc56b 45%, var(--orange) 55%, #c2410c); border: 1px solid #431407;
 }
-.magic-range:active::-webkit-slider-thumb { transform: scale(1.08); }
-.slider-ticks { display: flex; justify-content: space-between; margin-top: .35rem; font-size: .7rem; font-weight: 900; color: #fde68a; padding: 0 6px; }
+.slider-ticks { display: flex; justify-content: space-between; margin-top: .35rem; font-size: .7rem; font-weight: 900; color: #a5f3fc; padding: 0 6px; }
 .slider-ticks span:nth-child(even) { opacity: .4; }
+
+/* 指北針轉盤：拖曳指針轉方向，輕點順時針轉 90° */
+.compass {
+  position: relative; width: min(30vw, 8.4rem); aspect-ratio: 1; border-radius: 50%;
+  background: radial-gradient(circle, #0f2b3d 0 55%, #0a1c28 56% 70%, #1e293b 71%);
+  border: 4px solid #94a3b8;
+  box-shadow: 0 5px 10px rgba(0, 0, 0, .7), inset 0 0 12px rgba(34, 211, 238, .25);
+  touch-action: none; cursor: grab;
+}
+.compass b {
+  position: absolute; font-size: .8rem; font-weight: 900; color: #a5f3fc; line-height: 1;
+  transform: translate(-50%, -50%); transition: color .2s, transform .2s;
+}
+.compass b[data-d="N"] { left: 50%; top: 13%; }
+.compass b[data-d="E"] { left: 87%; top: 50%; }
+.compass b[data-d="S"] { left: 50%; top: 87%; }
+.compass b[data-d="W"] { left: 13%; top: 50%; }
+.compass b.on { color: var(--yellow); transform: translate(-50%, -50%) scale(1.35); text-shadow: 0 0 8px rgba(250, 204, 21, .9); }
+.compass .needle {
+  position: absolute; left: 50%; top: 50%; width: 14%; height: 62%;
+  transform: translate(-50%, -50%) rotate(var(--deg, 0deg));
+  transition: transform .25s cubic-bezier(.3, 1.5, .5, 1);
+}
+.compass.dragging .needle { transition: none; }
+.compass .needle::before, .compass .needle::after { content: ''; position: absolute; left: 0; width: 100%; height: 50%; }
+.compass .needle::before { top: 0; background: #ef4444; clip-path: polygon(50% 0, 100% 100%, 0 100%); filter: drop-shadow(0 0 4px rgba(239, 68, 68, .8)); }
+.compass .needle::after { bottom: 0; background: #e2e8f0; clip-path: polygon(0 0, 100% 0, 50% 100%); }
+.compass .hub { position: absolute; left: 50%; top: 50%; width: 16%; aspect-ratio: 1; border-radius: 50%; transform: translate(-50%, -50%); background: radial-gradient(circle at 35% 35%, #f8fafc, #64748b); }
 
 /* ---------- 全螢幕回饋 ---------- */
 .fx-overlay { position: absolute; inset: 0; pointer-events: none; opacity: 0; z-index: 40; }
-.fx-green { background: radial-gradient(circle, rgba(74, 222, 128, .55), rgba(34, 197, 94, .25) 60%, transparent); }
+.fx-green { background: radial-gradient(circle, rgba(34, 211, 238, .5), rgba(16, 185, 129, .25) 60%, transparent); }
 .fx-red { box-shadow: inset 0 0 50px 18px rgba(239, 68, 68, .95); }
 .fx-overlay.on { animation: flash .6s ease-out; }
 .fx-red.on { animation: flash-red .7s ease-out; }
@@ -233,26 +295,26 @@ input { user-select: text; -webkit-user-select: text; }
   40%, 60% { transform: translate(6px, -1px); }
 }
 
-/* 提示訊息放在狀態列下方，不擋住血條 */
+/* 提示訊息放在狀態列下方，不擋住氣壓錶 */
 .toast { top: calc(max(10%, 56px) + 10px); transition: opacity .25s; white-space: nowrap; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; }
 .toast.show { opacity: 1; }
 
 /* 開局倒數 */
 .countdown {
   position: absolute; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
-  background: radial-gradient(circle, rgba(26, 15, 7, .55), rgba(10, 6, 3, .85));
+  background: radial-gradient(circle, rgba(4, 18, 31, .5), rgba(2, 8, 15, .88));
 }
 .countdown.hidden { display: none; }
 .countdown span {
-  font-family: "Noto Serif TC", serif; font-weight: 900; font-size: 9rem; line-height: 1; color: #fde68a;
-  text-shadow: 0 0 20px rgba(251, 191, 36, .9), 0 0 60px rgba(168, 85, 247, .7);
+  font-family: "Noto Serif TC", serif; font-weight: 900; font-size: 9rem; line-height: 1; color: #e0f7ff;
+  text-shadow: 0 0 20px rgba(34, 211, 238, .9), 0 0 60px rgba(14, 116, 144, .9);
 }
 .countdown span.go { font-size: 4.5rem; }
 .countdown span.tick { animation: tick .9s cubic-bezier(.2, 1.4, .4, 1); }
 @keyframes tick { from { transform: scale(2.2); opacity: 0; } 30% { opacity: 1; } to { transform: scale(1); } }
 .locked #panel { pointer-events: none; }
 
-/* 滑桿推錯位置的提示 */
+/* 機關上的小提示（還沒到位） */
 .device .hint {
   position: absolute; left: 50%; bottom: 10%; transform: translateX(-50%);
   background: rgba(0, 0, 0, .8); color: #fcd34d; font-size: .8rem; font-weight: 900;
@@ -261,14 +323,25 @@ input { user-select: text; -webkit-user-select: text; }
 }
 @keyframes hint { 0% { opacity: 0; transform: translate(-50%, 6px); } 15%, 75% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; } }
 
-/* 失控模式：最後 30 秒 */
+/* 洋流失控：最後 30 秒 */
 #app.chaos .status-bar { animation: chaos-bar .6s ease-in-out infinite alternate; }
 @keyframes chaos-bar { to { background: linear-gradient(180deg, #7f1d1d, #3b0a0a); } }
-#app.chaos .magic-circle { animation-duration: 3s; filter: drop-shadow(0 0 8px rgba(239, 68, 68, .9)) hue-rotate(-60deg); }
-#app.chaos #instruction-zone { box-shadow: inset 0 0 40px rgba(220, 38, 38, .55); }
+#app.chaos .sonar i { border-color: rgba(220, 38, 38, .55); animation-duration: 1.6s; }
+#app.chaos #instruction-zone { box-shadow: inset 0 0 0 6px #e8e1c9, inset 0 0 40px rgba(220, 38, 38, .55); }
+#app.chaos .gear-panel { animation: current 2.4s ease-in-out infinite; }
+@keyframes current { 50% { transform: translateX(3px) rotate(.3deg); } }
 
-.wrecker { background: rgba(190, 18, 60, .25); border: 1px solid rgba(244, 63, 94, .5); border-radius: .75rem; padding: .5rem .75rem; font-size: .9rem; }
+/* ---------- 結算：每人一個稱號 ---------- */
+.award { display: grid; grid-template-columns: 1.6rem 1fr; gap: .1rem .6rem; align-items: start; background: rgba(0, 0, 0, .3); border-radius: .9rem; padding: .6rem .75rem; }
+.award.me { box-shadow: 0 0 0 2px var(--yellow); }
+.award .pos { grid-row: span 3; font-size: 1.1rem; text-align: center; }
+.award .who { display: flex; justify-content: space-between; gap: .5rem; font-weight: 900; }
+.award .who small { font-weight: 700; font-size: .72rem; color: rgba(207, 250, 254, .75); white-space: nowrap; }
+.award .title { font-family: "Noto Serif TC", serif; font-weight: 900; font-size: 1.05rem; color: var(--yellow); }
+.award .why { font-size: .8rem; color: rgba(207, 250, 254, .85); }
+.award.pop-in { animation: award-in .5s cubic-bezier(.2, 1.4, .4, 1) both; }
+@keyframes award-in { from { transform: translateY(14px) scale(.95); opacity: 0; } to { transform: none; opacity: 1; } }
 
 @media (prefers-reduced-motion: reduce) {
-  .magic-circle, .title-gear, .magic-btn-core { animation: none; }
+  .ocean-bg::before, .bubbles span, .sonar i, .title-diver, .magic-btn-core, #app.chaos .gear-panel { animation: none; }
 }

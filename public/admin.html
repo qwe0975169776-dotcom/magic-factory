@@ -4,35 +4,35 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
-  <title>工廠管理室</title>
+  <title>潛水中心後台</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { theme: { extend: { fontFamily: { sans: ['"Noto Sans TC"', 'system-ui', 'sans-serif'] } } } };</script>
   <style>
-    body { background: radial-gradient(circle at 50% 0%, #2b1a0e, #120c08 70%) fixed; }
-    .card { background: linear-gradient(160deg, rgba(58,36,20,.92), rgba(26,16,9,.95)); border: 2px solid #7a5517; border-radius: 1rem; }
-    .field { width: 100%; border-radius: .6rem; border: 1.5px solid #7a5517; background: rgba(0,0,0,.4); padding: .5rem .7rem; color: #fffbeb; outline: none; }
-    .field:focus { border-color: #fbbf24; }
+    body { background: linear-gradient(180deg, #0e4a75, #072540 45%, #04121f) fixed; }
+    .card { background: linear-gradient(160deg, rgba(14,74,117,.6), rgba(4,18,31,.9)); border: 1.5px solid rgba(103,232,249,.35); border-radius: 1rem; }
+    .field { width: 100%; border-radius: .6rem; border: 1.5px solid #0e7490; background: rgba(0,0,0,.4); padding: .5rem .7rem; color: #ecfeff; outline: none; }
+    .field:focus { border-color: #22d3ee; }
     .btn { border-radius: .75rem; padding: .55rem 1rem; font-weight: 800; transition: transform .08s, filter .2s; }
     .btn:active { transform: translateY(2px); }
     .btn:disabled { filter: grayscale(1) brightness(.6); }
-    .btn-gold { color: #2a1606; background: linear-gradient(180deg, #fde68a, #d99a1e); box-shadow: 0 3px 0 #6b4207; }
-    .btn-ghost { color: #fde68a; background: rgba(0,0,0,.35); border: 1px solid #7a5517; }
+    .btn-gold { color: #2a1300; background: linear-gradient(180deg, #ffc56b, #ff8a00); box-shadow: 0 3px 0 #8a4300; }
+    .btn-ghost { color: #a5f3fc; background: rgba(0,0,0,.35); border: 1px solid #0e7490; }
     .btn-red { color: #fff1f2; background: rgba(190,18,60,.55); border: 1px solid #be123c; }
-    .tab[aria-selected="true"] { background: #d99a1e; color: #2a1606; }
+    .tab[aria-selected="true"] { background: #ff8a00; color: #2a1300; }
     .dev.off { opacity: .45; }
     .hidden { display: none !important; }
     table td, table th { padding: .45rem .5rem; white-space: nowrap; }
   </style>
 </head>
-<body class="min-h-[100dvh] font-sans text-amber-50 antialiased">
+<body class="min-h-[100dvh] font-sans text-cyan-50 antialiased">
 
 <!-- 登入 -->
 <section id="login" class="flex min-h-[100dvh] items-center justify-center px-6">
   <form id="login-form" class="card w-full max-w-sm space-y-4 p-6">
-    <h1 class="text-center text-2xl font-black">🔐 工廠管理室</h1>
+    <h1 class="text-center text-2xl font-black">🔐 潛水中心後台</h1>
     <input id="password" type="password" class="field text-lg" placeholder="請輸入管理密碼" autocomplete="current-password" required>
     <button class="btn btn-gold w-full text-lg">進入</button>
     <p id="login-error" class="min-h-[1.25rem] text-center text-sm text-rose-300"></p>
@@ -42,7 +42,7 @@
 <!-- 後台 -->
 <section id="admin" class="mx-auto hidden max-w-3xl px-4 pb-28 pt-4">
   <header class="mb-3 flex items-center justify-between">
-    <h1 class="text-2xl font-black">⚙️ 工廠管理室</h1>
+    <h1 class="text-2xl font-black">🤿 潛水中心後台</h1>
     <div class="flex gap-2">
       <a href="/" class="btn btn-ghost text-sm">回遊戲</a>
       <button id="btn-logout" class="btn btn-ghost text-sm">登出</button>
@@ -65,7 +65,7 @@
   <!-- 遊戲參數 -->
   <section id="tab-settings" class="space-y-3">
     <div id="settings-form" class="card grid gap-4 p-4 sm:grid-cols-2"></div>
-    <p class="text-sm text-amber-200/70">修改後下一局開始生效，進行中的遊戲不受影響。</p>
+    <p class="text-sm text-cyan-200/70">修改後下一局開始生效，進行中的遊戲不受影響。</p>
     <div class="flex gap-2">
       <button id="btn-save-settings" class="btn btn-gold flex-1">儲存參數</button>
       <button id="btn-reset-settings" class="btn btn-ghost">恢復預設</button>
@@ -85,6 +85,7 @@
           <option value="button">按鈕</option>
           <option value="switch">開關</option>
           <option value="slider">滑桿</option>
+          <option value="compass">指北針</option>
         </select>
       </div>
       <div class="flex flex-wrap gap-2">
@@ -107,18 +108,18 @@
     </div>
     <div class="card overflow-x-auto p-2">
       <table class="w-full text-left text-sm">
-        <thead class="text-amber-300">
-          <tr><th>時間</th><th>人數</th><th>結果</th><th>評價</th><th>完成</th><th>逾時</th><th>亂按</th><th>穩定度</th><th>玩家</th></tr>
+        <thead class="text-cyan-300">
+          <tr><th>時間</th><th>人數</th><th>結果</th><th>評價</th><th>完成</th><th>逾時</th><th>亂按</th><th>剩餘氣量</th><th>玩家</th></tr>
         </thead>
         <tbody id="results-body"></tbody>
       </table>
-      <p id="results-empty" class="p-4 text-center text-amber-200/70">還沒有成績，玩完一局就會出現。</p>
+      <p id="results-empty" class="p-4 text-center text-cyan-200/70">還沒有成績，玩完一局就會出現。</p>
     </div>
   </section>
 </section>
 
 <!-- 儲存列（題庫有未儲存修改時出現） -->
-<div id="save-bar" class="fixed inset-x-0 bottom-0 z-20 hidden border-t-2 border-amber-700 bg-[#1a0f07]/95 p-3 backdrop-blur">
+<div id="save-bar" class="fixed inset-x-0 bottom-0 z-20 hidden border-t-2 border-cyan-700 bg-[#04121f]/95 p-3 backdrop-blur">
   <div class="mx-auto flex max-w-3xl items-center gap-3">
     <span class="flex-1 text-sm">題庫有尚未儲存的修改</span>
     <button id="btn-discard" class="btn btn-ghost text-sm">放棄</button>
@@ -143,9 +144,10 @@
     button: [['啟動', 'press'], ['按下', 'press'], ['拍下', 'press']],
     switch: [['開啟', 'on'], ['關閉', 'off']],
     slider: [['推到頂端', 'max'], ['推到中間', 'mid'], ['拉到底部', 'min']],
+    compass: [['轉到指定方向', 'random']],
   };
-  const TYPE_LABEL = { button: '按鈕', switch: '開關', slider: '滑桿' };
-  const REASON = { timeup: '撐到下班', collapse: '工廠爆炸', notEnough: '人數不足' };
+  const TYPE_LABEL = { button: '按鈕', switch: '開關', slider: '滑桿', compass: '指北針' };
+  const REASON = { timeup: '平安上船', collapse: '緊急上升', notEnough: '人數不足' };
 
   let token = store.get();
   let state = null;
@@ -224,9 +226,9 @@
     const { settings, defaults, rules } = state;
     $('settings-form').innerHTML = Object.entries(rules).map(([key, [label, min, max]]) => `
       <label class="block">
-        <span class="mb-1 flex justify-between text-sm font-bold"><span>${esc(label)}</span><span class="font-normal text-amber-200/60">預設 ${defaults[key]}</span></span>
+        <span class="mb-1 flex justify-between text-sm font-bold"><span>${esc(label)}</span><span class="font-normal text-cyan-200/60">預設 ${defaults[key]}</span></span>
         <input type="number" inputmode="decimal" class="field text-lg" data-key="${key}" min="${min}" max="${max}" step="${key === 'MIN_PLAYERS' ? 1 : 0.5}" value="${settings[key]}">
-        <span class="text-xs text-amber-200/50">可設定 ${min}–${max}</span>
+        <span class="text-xs text-cyan-200/50">可設定 ${min}–${max}</span>
       </label>`).join('');
   }
 
@@ -255,6 +257,7 @@
 
   function autoInstruction(d) {
     if (!d.name) return '';
+    if (d.type === 'compass') return `把${d.name}轉到（隨機方向）！`;
     return d.type === 'slider' ? `把${d.name}${d.action}！` : `${d.action}${d.name}！`;
   }
 
@@ -276,12 +279,13 @@
       <div class="dev card space-y-2 p-3 ${d.enabled ? '' : 'off'}" data-i="${i}">
         <div class="flex items-center gap-2">
           <label class="flex items-center gap-1.5 text-sm font-bold">
-            <input type="checkbox" data-f="enabled" class="h-5 w-5 accent-amber-500" ${d.enabled ? 'checked' : ''}>啟用
+            <input type="checkbox" data-f="enabled" class="h-5 w-5 accent-orange-500" ${d.enabled ? 'checked' : ''}>啟用
           </label>
-          <span class="flex-1 text-right text-xs text-amber-200/50">${esc(d.id)}</span>
+          <span class="flex-1 text-right text-xs text-cyan-200/50">${esc(d.id)}</span>
           <button data-act="del" class="btn btn-red px-3 py-1 text-xs">刪除</button>
         </div>
         <input class="field font-bold" data-f="name" value="${esc(d.name)}" placeholder="機關名稱（越拗口越好笑）">
+        ${d.type === 'compass' ? '<p class="text-xs text-cyan-200/70">指北針每次會隨機指定東西南北，不用寫指令文字</p>' : ''}
         <div class="grid grid-cols-2 gap-2">
           <select class="field" data-f="type">
             ${Object.entries(TYPE_LABEL).map(([v, l]) => `<option value="${v}" ${v === d.type ? 'selected' : ''}>${l}</option>`).join('')}
@@ -293,7 +297,7 @@
           <button data-act="auto" class="btn btn-ghost px-3 text-xs">自動產生</button>
         </div>
       </div>`;
-    }).join('') || '<p class="card p-4 text-center text-amber-200/70">沒有符合的機關</p>';
+    }).join('') || '<p class="card p-4 text-center text-cyan-200/70">沒有符合的機關</p>';
   }
 
   $('device-search').addEventListener('input', renderDevices);
@@ -377,7 +381,7 @@
   });
 
   $('btn-reset-devices').addEventListener('click', async () => {
-    if (!confirm('把題庫恢復成原本的 50 個機關？你的修改會消失。')) return;
+    if (!confirm('把題庫恢復成原本的 50 個潛水機關？你的修改會消失。')) return;
     try {
       applyState(await api('POST', '/api/admin/devices/reset'), true);
       toast('已恢復預設題庫');
@@ -420,10 +424,10 @@
     const list = state.results;
     $('results-empty').classList.toggle('hidden', list.length > 0);
     $('results-body').innerHTML = list.map((r) => `
-      <tr class="border-t border-amber-900/60">
+      <tr class="border-t border-cyan-900/60">
         <td>${esc(fmtTime(r.time))}</td><td>${r.playerCount}</td><td>${esc(REASON[r.reason] || r.reason)}</td>
-        <td>${esc(r.rank)}</td><td class="text-emerald-300">${r.completed}</td><td class="text-amber-300">${r.failed}</td>
-        <td class="text-rose-300">${r.wrong}</td><td>${r.stability}%</td><td class="text-xs">${esc(r.names.join('、'))}</td>
+        <td>${esc(r.rank)}</td><td class="text-emerald-300">${r.completed}</td><td class="text-cyan-300">${r.failed}</td>
+        <td class="text-rose-300">${r.wrong}</td><td>${r.stability} bar</td><td class="text-xs">${esc(r.names.join('、'))}</td>
       </tr>`).join('');
   }
 
@@ -433,12 +437,12 @@
 
   $('btn-csv').addEventListener('click', () => {
     if (!state.results.length) return toast('還沒有成績可以下載');
-    const head = ['時間', '房間', '人數', '結果', '評價', '完成指令', '逾時', '亂按', '最終穩定度', '撐了幾秒', '玩家'];
+    const head = ['時間', '房間', '人數', '結果', '評價', '完成指令', '逾時', '亂按', '剩餘氣量(bar)', '撐了幾秒', '玩家'];
     const cell = (v) => `"${String(v).replace(/"/g, '""')}"`;
     const rows = state.results.map((r) => [fmtTime(r.time), r.code, r.playerCount, REASON[r.reason] || r.reason, r.rank,
-      r.completed, r.failed, r.wrong, r.stability + '%', r.survivedSeconds, r.names.join('、')].map(cell).join(','));
+      r.completed, r.failed, r.wrong, r.stability, r.survivedSeconds, r.names.join('、')].map(cell).join(','));
     const date = new Date().toISOString().slice(0, 10);
-    download(`魔法工廠成績_${date}.csv`, '﻿' + [head.map(cell).join(','), ...rows].join('\r\n'), 'text/csv');
+    download(`深海大亂潛成績_${date}.csv`, '﻿' + [head.map(cell).join(','), ...rows].join('\r\n'), 'text/csv');
   });
 
   $('btn-clear-results').addEventListener('click', async () => {
