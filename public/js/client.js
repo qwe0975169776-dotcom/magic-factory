@@ -26,7 +26,36 @@
   function showScreen(name) {
     state.screen = name;
     for (const s of ['home', 'lobby', 'game', 'result']) $('screen-' + s).classList.toggle('hidden', s !== name);
+    $('toast').classList.remove('show');
+    if (name === 'lobby' || name === 'game') keepAwake(); else releaseAwake();
   }
+
+  // 等人或遊戲中保持螢幕不關閉（手機鎖屏會斷線被踢出房間）
+  let wakeLock = null;
+  async function keepAwake() {
+    try {
+      if (!wakeLock && 'wakeLock' in navigator) {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+      }
+    } catch (e) { /* 不支援或被拒絕時略過 */ }
+  }
+  function releaseAwake() {
+    try { if (wakeLock) wakeLock.release(); } catch (e) { /* 略過 */ }
+    wakeLock = null;
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && (state.screen === 'lobby' || state.screen === 'game')) keepAwake();
+  });
+
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  const ROAST_WRONG = [
+    '💢 {n} 亂按機關！', '🙃 {n} 手滑了', '🔥 {n} 讓工廠冒煙了', '🤡 {n} 按了個寂寞',
+    '💥 {n} 你在按什麼？', '😵 {n} 又不聽指揮', '🧨 {n} 正在拆工廠', '🐒 {n} 請把手放下',
+  ];
+  const ROAST_TIMEOUT = [
+    '⌛ {n} 的指令沒人理', '🦗 {n} 喊到沒人聽見', '😴 大家都沒幫 {n}', '📢 {n} 要再喊大聲一點',
+  ];
 
   let toastTimer = null;
   function toast(text) {
@@ -82,6 +111,9 @@
     timeout() { [392, 349.2, 311.1, 261.6].forEach((f, i) => tone(f, i * 0.12, 0.25, 'square', 0.08)); },
     click() { tone(1500, 0, 0.04, 'square', 0.04); },
     newInstr() { tone(659.25, 0, 0.1, 'sine', 0.12); tone(987.8, 0.07, 0.15, 'sine', 0.12); },
+    beep() { tone(880, 0, 0.15, 'square', 0.08); },
+    go() { tone(1318.5, 0, 0.35, 'square', 0.1); tone(1760, 0.05, 0.35, 'square', 0.06); },
+    alarm() { [0, 0.3, 0.6].forEach((t) => { tone(622.3, t, 0.15, 'sawtooth', 0.1); tone(466.2, t + 0.15, 0.15, 'sawtooth', 0.1); }); },
   };
   document.addEventListener('pointerdown', ensureAudio, { passive: true });
 
@@ -284,7 +316,7 @@
     state.stability = v;
     const fill = $('stability-fill');
     fill.style.width = `${v}%`;
-    fill.style.setProperty('--stab-color', `hsl(${Math.round(v * 1.2)}, 85%, 50%)`);
+    fill.style.setProperty('--stab-color', `hsl(${Math.round(v * 1.2)}, 85%, ${v > 50 ? 45 : 50}%)`);
     $('stability-text').textContent = `${v}%`;
   }
 
@@ -334,8 +366,39 @@
     panel.innerHTML = '';
     g.devices.forEach((d) => panel.appendChild(createDevice(d)));
     setStability(g.stability);
-    setInstruction('準備開工……<br><span class="text-base">看看你的機關，聽隊友喊！</span>', { muted: true });
+    setInstruction('先看清楚你的四個機關！<br><span class="text-base">指令出現就大聲喊出來</span>', { muted: true });
+    $('app').classList.remove('chaos');
     showScreen('game');
+    runCountdown(g.countdownMs || 3000);
+  });
+
+  let countdownTimers = [];
+  function runCountdown(ms) {
+    countdownTimers.forEach(clearTimeout);
+    countdownTimers = [];
+    const box = $('countdown');
+    const num = $('countdown-num');
+    const steps = ['3', '2', '1', '開工！'];
+    const gap = ms / steps.length;
+    $('app').classList.add('locked');
+    box.classList.remove('hidden');
+    steps.forEach((t, i) => countdownTimers.push(setTimeout(() => {
+      num.textContent = t;
+      num.classList.toggle('go', i === steps.length - 1);
+      retrigger(num, 'tick');
+      if (i === steps.length - 1) sfx.go(); else sfx.beep();
+    }, i * gap)));
+    countdownTimers.push(setTimeout(() => {
+      box.classList.add('hidden');
+      $('app').classList.remove('locked');
+    }, ms));
+  }
+
+  socket.on('game:chaos', () => {
+    $('app').classList.add('chaos');
+    sfx.alarm();
+    if (navigator.vibrate) navigator.vibrate([80, 40, 80, 40, 80]);
+    toast('🚨 失控模式！指令越來越快！');
   });
 
   socket.on('game:timer', ({ remainingMs }) => {
@@ -373,6 +436,14 @@
       toast(`👍 你幫 ${forName} 完成了指令`);
     } else if (ok === false) {
       retrigger(dv.el, 'bad');
+    } else if (ok === null) {
+      const old = dv.el.querySelector('.hint');
+      if (old) old.remove();
+      const hint = document.createElement('span');
+      hint.className = 'hint';
+      hint.textContent = '還沒到位！';
+      dv.el.appendChild(hint);
+      setTimeout(() => hint.remove(), 1500);
     }
   });
 
@@ -382,8 +453,8 @@
     setStability(stability);
     if (delta < 0) {
       damageFx();
-      if (reason === 'wrong') toast(`💢 ${byName} 亂按機關！`);
-      else if (reason === 'timeout') toast(`⌛ ${byName} 的指令逾時了`);
+      if (reason === 'wrong') toast(pick(ROAST_WRONG).replace('{n}', byName));
+      else if (reason === 'timeout') toast(pick(ROAST_TIMEOUT).replace('{n}', byName));
     }
   });
 
@@ -391,6 +462,12 @@
 
   socket.on('game:over', (r) => {
     state.instr.active = false;
+    countdownTimers.forEach(clearTimeout);
+    $('countdown').classList.add('hidden');
+    $('app').classList.remove('locked', 'chaos');
+    const wk = $('result-wrecker');
+    wk.classList.toggle('hidden', !r.wrecker);
+    if (r.wrecker) wk.textContent = `🧨 最佳破壞王：${r.wrecker.name}（亂按 ${r.wrecker.mistakes} 次）`;
     const reasons = {
       timeup: '⏰ 下班鈴響了！工廠撐過了這一班',
       collapse: '💥 轟隆！工廠穩定度歸零，整座工廠炸飛了',

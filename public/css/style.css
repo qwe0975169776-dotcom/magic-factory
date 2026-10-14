@@ -68,7 +68,7 @@ input { user-select: text; -webkit-user-select: text; }
 .stability-track { background: rgba(0, 0, 0, .55); box-shadow: inset 0 2px 4px rgba(0, 0, 0, .8); border: 1px solid var(--brass-dark); }
 .stability-fill {
   width: 100%;
-  background: linear-gradient(90deg, #dc2626, var(--stab-color, #22c55e));
+  background: var(--stab-color, #22c55e); /* 整條單色：綠 → 黃 → 紅 */
   box-shadow: 0 0 10px var(--stab-color, #22c55e);
   transition: width .35s ease, background .35s;
 }
@@ -99,7 +99,7 @@ input { user-select: text; -webkit-user-select: text; }
 }
 @keyframes circle-spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
 
-.instruction-text { font-size: clamp(1.4rem, 7vw, 2rem); text-shadow: 0 1px 0 rgba(255, 255, 255, .6); }
+.instruction-text { font-size: clamp(1.4rem, 7vw, 2rem); text-shadow: 0 1px 0 rgba(255, 255, 255, .6); text-wrap: balance; }
 .instruction-text.long { font-size: clamp(1.15rem, 5.6vw, 1.6rem); }
 .instruction-text .dev-name {
   color: #7c2d12; background: rgba(251, 191, 36, .35);
@@ -145,6 +145,7 @@ input { user-select: text; -webkit-user-select: text; }
   background: linear-gradient(180deg, #8a6320, #5c3f12);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 2px 3px rgba(0, 0, 0, .5);
   text-shadow: 0 1px 1px #000;
+  text-wrap: balance; /* 長名字平均分成兩行，不會掉一個字 */
 }
 .device-body { flex: 1; width: 100%; display: flex; align-items: center; justify-content: center; min-height: 0; }
 .device.ok { animation: ok-glow .7s ease-out; }
@@ -232,8 +233,41 @@ input { user-select: text; -webkit-user-select: text; }
   40%, 60% { transform: translate(6px, -1px); }
 }
 
-.toast { transition: opacity .25s; white-space: nowrap; }
+/* 提示訊息放在狀態列下方，不擋住血條 */
+.toast { top: calc(max(10%, 56px) + 10px); transition: opacity .25s; white-space: nowrap; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; }
 .toast.show { opacity: 1; }
+
+/* 開局倒數 */
+.countdown {
+  position: absolute; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle, rgba(26, 15, 7, .55), rgba(10, 6, 3, .85));
+}
+.countdown.hidden { display: none; }
+.countdown span {
+  font-family: "Noto Serif TC", serif; font-weight: 900; font-size: 9rem; line-height: 1; color: #fde68a;
+  text-shadow: 0 0 20px rgba(251, 191, 36, .9), 0 0 60px rgba(168, 85, 247, .7);
+}
+.countdown span.go { font-size: 4.5rem; }
+.countdown span.tick { animation: tick .9s cubic-bezier(.2, 1.4, .4, 1); }
+@keyframes tick { from { transform: scale(2.2); opacity: 0; } 30% { opacity: 1; } to { transform: scale(1); } }
+.locked #panel { pointer-events: none; }
+
+/* 滑桿推錯位置的提示 */
+.device .hint {
+  position: absolute; left: 50%; bottom: 10%; transform: translateX(-50%);
+  background: rgba(0, 0, 0, .8); color: #fcd34d; font-size: .8rem; font-weight: 900;
+  padding: .2rem .6rem; border-radius: 999px; white-space: nowrap; pointer-events: none;
+  animation: hint 1.4s ease-out forwards;
+}
+@keyframes hint { 0% { opacity: 0; transform: translate(-50%, 6px); } 15%, 75% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; } }
+
+/* 失控模式：最後 30 秒 */
+#app.chaos .status-bar { animation: chaos-bar .6s ease-in-out infinite alternate; }
+@keyframes chaos-bar { to { background: linear-gradient(180deg, #7f1d1d, #3b0a0a); } }
+#app.chaos .magic-circle { animation-duration: 3s; filter: drop-shadow(0 0 8px rgba(239, 68, 68, .9)) hue-rotate(-60deg); }
+#app.chaos #instruction-zone { box-shadow: inset 0 0 40px rgba(220, 38, 38, .55); }
+
+.wrecker { background: rgba(190, 18, 60, .25); border: 1px solid rgba(244, 63, 94, .5); border-radius: .75rem; padding: .5rem .75rem; font-size: .9rem; }
 
 @media (prefers-reduced-motion: reduce) {
   .magic-circle, .title-gear, .magic-btn-core { animation: none; }

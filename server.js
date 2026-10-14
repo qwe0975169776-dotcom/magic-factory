@@ -22,7 +22,10 @@ const CONFIG = {
   MAX_PLAYERS: 10,
   DEVICES_PER_PLAYER: 4,
   GAME_DURATION_MS: (Number(process.env.GAME_SECONDS) || 180) * 1000, // 一局 3 分鐘
-  INSTRUCTION_MS: 15000,          // 每條指令 15 秒
+  INSTRUCTION_MS: 15000,          // 開局時每條指令 15 秒
+  INSTRUCTION_MIN_MS: 9000,       // 越玩越快，結尾縮短到 9 秒
+  COUNTDOWN_MS: 3500,             // 開局「3、2、1、開工！」倒數
+  CHAOS_MS: 30000,                // 最後 30 秒進入失控模式
   START_STABILITY: 100,           // 工廠穩定度起始值
   WRONG_PENALTY: 5,               // 亂按（沒人要求的機關）扣分
   WRONG_COOLDOWN_MS: 1000,        // 同一人連續亂按，1 秒內只扣一次（避免狂按秒殺工廠）
@@ -39,7 +42,8 @@ const CONFIG = {
 // 後台可調整的遊戲參數：key → [說明, 最小值, 最大值]
 const SETTING_RULES = {
   GAME_SECONDS: ['一局秒數', 30, 900],
-  INSTRUCTION_SECONDS: ['每條指令秒數', 5, 60],
+  INSTRUCTION_SECONDS: ['開局指令秒數', 5, 60],
+  INSTRUCTION_MIN_SECONDS: ['結尾指令秒數（越玩越快）', 3, 60],
   MIN_PLAYERS: ['最低開局人數', 2, 10],
   WRONG_PENALTY: ['亂按扣分', 0, 50],
   TIMEOUT_PENALTY: ['逾時扣分', 0, 50],
@@ -50,6 +54,7 @@ function getSettings() {
   return {
     GAME_SECONDS: CONFIG.GAME_DURATION_MS / 1000,
     INSTRUCTION_SECONDS: CONFIG.INSTRUCTION_MS / 1000,
+    INSTRUCTION_MIN_SECONDS: CONFIG.INSTRUCTION_MIN_MS / 1000,
     MIN_PLAYERS: CONFIG.MIN_PLAYERS,
     WRONG_PENALTY: CONFIG.WRONG_PENALTY,
     TIMEOUT_PENALTY: CONFIG.TIMEOUT_PENALTY,
@@ -60,6 +65,7 @@ function getSettings() {
 function applySettings(s) {
   CONFIG.GAME_DURATION_MS = s.GAME_SECONDS * 1000;
   CONFIG.INSTRUCTION_MS = s.INSTRUCTION_SECONDS * 1000;
+  CONFIG.INSTRUCTION_MIN_MS = Math.min(s.INSTRUCTION_MIN_SECONDS, s.INSTRUCTION_SECONDS) * 1000;
   CONFIG.MIN_PLAYERS = s.MIN_PLAYERS;
   CONFIG.WRONG_PENALTY = s.WRONG_PENALTY;
   CONFIG.TIMEOUT_PENALTY = s.TIMEOUT_PENALTY;
@@ -394,8 +400,9 @@ function startGame(room) {
   room.stats = { completed: 0, failed: 0, wrong: 0 };
   room.result = null;
   room.state = 'playing';
-  room.startedAt = Date.now();
+  room.startedAt = Date.now() + CONFIG.COUNTDOWN_MS; // 倒數結束才算正式開工
   room.endsAt = room.startedAt + CONFIG.GAME_DURATION_MS;
+  room.chaos = false;
 
   // 狀態分發：每人 4 個完全不同的機關
   players.forEach((p, i) => {
@@ -421,19 +428,32 @@ function startGame(room) {
       durationMs: CONFIG.GAME_DURATION_MS,
       remainingMs: CONFIG.GAME_DURATION_MS,
       instructionMs: CONFIG.INSTRUCTION_MS,
+      countdownMs: CONFIG.COUNTDOWN_MS,
       sliderMax: SLIDER_MAX,
     });
   }
 
   // 倒數計時（每秒同步一次）
   room.tickInterval = setInterval(() => {
-    const remainingMs = Math.max(0, room.endsAt - Date.now());
+    const remainingMs = Math.max(0, Math.min(CONFIG.GAME_DURATION_MS, room.endsAt - Date.now()));
     io.to(room.code).emit('game:timer', { remainingMs });
+    const chaosAt = Math.min(CONFIG.CHAOS_MS, CONFIG.GAME_DURATION_MS / 3);
+    if (!room.chaos && remainingMs > 0 && remainingMs <= chaosAt) {
+      room.chaos = true;
+      io.to(room.code).emit('game:chaos', { remainingMs });
+    }
     if (remainingMs <= 0) endGame(room, 'timeup');
   }, 1000);
 
   // 錯開配發第一條指令
-  players.forEach((p, i) => later(room, () => issueInstruction(room, p.id), 800 + i * CONFIG.START_STAGGER_MS));
+  players.forEach((p, i) => later(room, () => issueInstruction(room, p.id), CONFIG.COUNTDOWN_MS + 300 + i * CONFIG.START_STAGGER_MS));
+}
+
+/** 依遊戲進度計算這條指令有幾毫秒：從開局秒數線性縮短到結尾秒數 */
+function instructionDuration(room) {
+  const progress = Math.max(0, Math.min(1, (Date.now() - room.startedAt) / CONFIG.GAME_DURATION_MS));
+  const ms = CONFIG.INSTRUCTION_MS - (CONFIG.INSTRUCTION_MS - CONFIG.INSTRUCTION_MIN_MS) * progress;
+  return Math.round(ms / 500) * 500;
 }
 
 /** 指令生成：目標機關必須在「其他玩家」畫面上，且同一時間不會有兩條指令指向同一個機關 */
@@ -471,17 +491,19 @@ function issueInstruction(room, playerId) {
     target: dev.target,
     text: dev.instruction,
     issuedAt: Date.now(),
-    expiresAt: Date.now() + CONFIG.INSTRUCTION_MS,
+    expiresAt: 0,
     timer: null,
   };
-  instruction.timer = later(room, () => onInstructionTimeout(room, player.id, instruction), CONFIG.INSTRUCTION_MS);
+  const durationMs = instructionDuration(room);
+  instruction.expiresAt = Date.now() + durationMs;
+  instruction.timer = later(room, () => onInstructionTimeout(room, player.id, instruction), durationMs);
   player.instruction = instruction;
   player.lastDeviceId = deviceId;
 
   io.to(player.id).emit('instruction:new', {
     text: dev.instruction,
     deviceName: dev.name,
-    durationMs: CONFIG.INSTRUCTION_MS,
+    durationMs,
   });
 }
 
@@ -570,7 +592,7 @@ function endGame(room, reason) {
   room.state = 'ended';
   clearAllTimers(room);
 
-  const survivedMs = Math.min(CONFIG.GAME_DURATION_MS, Date.now() - room.startedAt);
+  const survivedMs = Math.max(0, Math.min(CONFIG.GAME_DURATION_MS, Date.now() - room.startedAt));
   const s = room.stats;
   let rank;
   if (reason === 'collapse') rank = '💥 廢墟清潔工';
@@ -591,6 +613,8 @@ function endGame(room, reason) {
       .map((p) => ({ id: p.id, name: p.name, helped: p.helped, requested: p.requested, mistakes: p.mistakes }))
       .sort((a, b) => b.helped - a.helped || a.mistakes - b.mistakes),
   };
+  const wrecker = room.result.players.reduce((w, p) => (p.mistakes > (w ? w.mistakes : 0) ? p : w), null);
+  room.result.wrecker = wrecker ? { name: wrecker.name, mistakes: wrecker.mistakes } : null;
   io.to(room.code).emit('game:over', room.result);
   gameLog.unshift({
     time: new Date().toISOString(),
@@ -710,7 +734,7 @@ io.on('connection', (socket) => {
       return reply(ack, { ok: false, error: `至少需要 ${CONFIG.MIN_PLAYERS} 人才能開工` });
     }
     if (room.players.size > maxPlayers()) {
-      return reply(ack, { ok: false, error: `題庫啟用的機關只夠 ${maxPlayers()} 人玩，請老師到後台多啟用幾個` });
+      return reply(ack, { ok: false, error: `題庫啟用的機關只夠 ${maxPlayers()} 人玩，請主持人到後台多啟用幾個` });
     }
     reply(ack, { ok: true });
     startGame(room);
@@ -721,7 +745,7 @@ io.on('connection', (socket) => {
     const room = myRoom();
     if (!room || room.state !== 'playing' || !payload) return;
     const operator = room.players.get(socket.id);
-    if (!operator) return;
+    if (!operator || Date.now() < room.startedAt) return; // 倒數中不算
     handleOperate(room, operator, String(payload.deviceId), payload.value);
   });
 

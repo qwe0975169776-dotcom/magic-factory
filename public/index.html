@@ -110,6 +110,9 @@
 
     <!-- 操作區（60%） -->
     <main id="panel" class="wood-panel grid h-[60%] grid-cols-2 grid-rows-2 gap-3 p-3"></main>
+
+    <!-- 開局倒數 -->
+    <div id="countdown" class="countdown hidden" aria-live="assertive"><span id="countdown-num">3</span></div>
   </section>
 
   <!-- ==================== 結算 ==================== -->
@@ -123,6 +126,7 @@
         <div class="stat-cell"><span id="result-wrong" class="text-2xl font-black text-rose-300">0</span><small>亂按</small></div>
       </div>
       <p class="mt-3 text-sm">最終穩定度 <b id="result-stability">0%</b>｜撐了 <b id="result-time">0:00</b></p>
+      <p id="result-wrecker" class="wrecker mt-3 hidden"></p>
     </div>
     <div class="brass-card flex min-h-0 flex-1 flex-col p-4">
       <h2 class="mb-2 font-serif text-xl font-black">員工表揚榜</h2>
@@ -137,7 +141,7 @@
   <div id="fx-red" class="fx-overlay fx-red" aria-hidden="true"></div>
 
   <!-- 提示訊息 -->
-  <div id="toast" class="toast pointer-events-none absolute left-1/2 top-4 z-50 -translate-x-1/2 rounded-full bg-black/80 px-4 py-2 text-sm text-amber-50 opacity-0 shadow-lg"></div>
+  <div id="toast" class="toast pointer-events-none absolute left-1/2 z-50 -translate-x-1/2 rounded-full bg-black/80 px-4 py-2 text-sm text-amber-50 opacity-0 shadow-lg"></div>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
