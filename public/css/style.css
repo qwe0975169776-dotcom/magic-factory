@@ -18,6 +18,10 @@
 
 html, body { height: 100%; overscroll-behavior: none; }
 body { touch-action: manipulation; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+/* 遊戲中所有機關：不准捲動、不准縮放、長按不跳出選單 */
+#panel, #panel * { touch-action: manipulation; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+#panel .compass, #panel .compass * { touch-action: none; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 input { user-select: text; -webkit-user-select: text; }
 .screen { z-index: 1; }
 .screen.hidden { display: none !important; }

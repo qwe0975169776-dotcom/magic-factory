@@ -165,6 +165,39 @@
   document.addEventListener('pointerdown', ensureAudio, { passive: true });
 
   // ---------------------------------------------------------
+  // 防止手機「快速連點 → 畫面放大」與雙指縮放
+  // iPhone Safari 不理會 user-scalable=no，要在觸控事件上主動擋下
+  // （輸入框除外，打字時仍可正常操作）
+  // ---------------------------------------------------------
+  const isTyping = (el) => el && el.closest && el.closest('input, textarea, select, [contenteditable]');
+  let lastTouchEnd = 0;
+  document.addEventListener('touchend', (e) => {
+    const now = Date.now();
+    if (now - lastTouchEnd < 400 && !isTyping(e.target)) {
+      e.preventDefault(); // 第二下太快 → 不當成「點兩下放大」
+      // 擋掉放大的同時，按鈕本身仍要算一次點擊（例如快速連按 ＋／－）
+      const btn = e.target.closest && e.target.closest('button, .knob, .compass');
+      if (btn && !btn.classList.contains('compass') && !btn.classList.contains('magic-btn')) btn.click();
+    }
+    lastTouchEnd = now;
+  }, { passive: false });
+  document.addEventListener('touchstart', (e) => {
+    if (e.touches.length > 1) e.preventDefault(); // 兩指 → 擋掉縮放
+  }, { passive: false });
+  document.addEventListener('dblclick', (e) => { if (!isTyping(e.target)) e.preventDefault(); }, { passive: false });
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach((ev) => document.addEventListener(ev, (e) => e.preventDefault(), { passive: false }));
+  // 萬一還是被放大了（例如系統設定強制允許縮放），回到遊戲畫面時提示
+  if (window.visualViewport) {
+    let zoomWarned = 0;
+    window.visualViewport.addEventListener('resize', () => {
+      if (window.visualViewport.scale > 1.05 && state.screen === 'game' && Date.now() - zoomWarned > 8000) {
+        zoomWarned = Date.now();
+        toast('🔍 畫面被放大了，用兩指縮小回來');
+      }
+    });
+  }
+
+  // ---------------------------------------------------------
   // 視覺回饋
   // ---------------------------------------------------------
   function flashSuccess() {
@@ -503,6 +536,8 @@
       dial.setPointerCapture(e.pointerId);
       drag = { x: e.clientX, y: e.clientY, moved: false };
     });
+    dial.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+    dial.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
     dial.addEventListener('pointermove', (e) => {
       if (!drag) return;
       if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 8) drag.moved = true;
