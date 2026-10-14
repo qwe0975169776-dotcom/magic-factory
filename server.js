@@ -23,7 +23,7 @@ const CONFIG = {
   MAX_PLAYERS: 10,
   DEVICES_PER_PLAYER: 4,
   GAME_DURATION_MS: (Number(process.env.GAME_SECONDS) || 180) * 1000, // 一局 3 分鐘
-  COUNTDOWN_MS: 3500,             // 開局「3、2、1、下潛！」倒數
+  COUNTDOWN_MS: 6500,             // 開局：跳水動畫 3.5 秒＋「3、2、1、下潛！」倒數
   AIR_FULL: 100,                  // 氣瓶壓力：開局 100 bar
   AIR_EMPTY: 20,                  // 降到 20 bar → 全員緊急上升（遊戲結束）
   WRONG_COOLDOWN_MS: 1000,        // 同一人連續亂按，1 秒內只扣一次
@@ -321,6 +321,14 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/health', (_req, res) => res.json({ ok: true, rooms: rooms.size }));
 app.use('/api/admin', express.json({ limit: '200kb' }));
 app.get('/admin', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
+// 單人練習用的題庫（只給啟用中的機關）
+app.get('/api/devices', (_req, res) => {
+  res.json({
+    ok: true,
+    typeLevels: TYPE_LEVELS,
+    devices: activeDevices().map(({ id, name, type, action, instruction, target, options }) => ({ id, name, type, action, instruction, target, ...(options ? { options } : {}) })),
+  });
+});
 
 // ============================================================
 // 後台 API（密碼登入後取得 token）

@@ -23,6 +23,8 @@
     instr: { active: false, start: 0, duration: 15000 },
     stability: AIR_FULL,
     lowAirWarned: false,
+    durationMs: 180000,
+    musicOn: false,
   };
 
   // ---------------------------------------------------------
@@ -34,7 +36,7 @@
 
   function showScreen(name) {
     state.screen = name;
-    for (const s of ['home', 'lobby', 'game', 'result']) $('screen-' + s).classList.toggle('hidden', s !== name);
+    for (const s of ['home', 'solo', 'lobby', 'game', 'result']) $('screen-' + s).classList.toggle('hidden', s !== name);
     $('toast').classList.remove('show');
     if (name === 'lobby' || name === 'game') keepAwake(); else releaseAwake();
   }
@@ -196,6 +198,7 @@
     if (!myName()) return toast('先取個潛水暱稱吧！'), nameInput.focus();
     socket.emit('room:create', { name: myName() }, (res) => {
       if (!res.ok) return toast(res.error);
+      lastResultSolo = false;
       showScreen('lobby');
     });
   });
@@ -206,6 +209,7 @@
     if (code.length !== 4) return toast('船號是 4 個字');
     socket.emit('room:join', { name: myName(), code }, (res) => {
       if (!res.ok) return toast(res.error);
+      lastResultSolo = false;
       showScreen('lobby');
     });
   });
@@ -286,7 +290,8 @@
   const TRI_LABEL = ['關', '半開', '全開'];
 
   function operate(id, value) {
-    socket.emit('device:operate', { deviceId: id, value });
+    if (SOLO.active) soloOperate(id, value);
+    else socket.emit('device:operate', { deviceId: id, value });
   }
 
   // 連續調整型（刻度、選擇器）：停手 0.6 秒後才送出，避免中途數值被當成亂按
@@ -592,6 +597,19 @@
     }
   }
 
+  /** 指令文字：機關名稱標黃、要調整的值標紅 */
+  function formatInstruction(text, deviceName) {
+    let html = esc(text);
+    if (deviceName) html = html.split(esc(deviceName)).join(`<span class="dev-name">${esc(deviceName)}</span>`);
+    return html
+      .replace(/轉到(東北|東南|西北|西南|北|東|南|西)！/, '轉到<span class="act">$1</span>！')
+      .replace(/「(.+?)」/, '「<span class="act">$1</span>」')
+      .replace(/調到 (\d+)！/, '調到 <span class="act">$1</span>！')
+      .replace(/(關掉|調到半開|全開)！$/, '<span class="act">$1</span>！')
+      .replace(/(連按三下|長按)/, '<span class="act">$1</span>')
+      .replace(/(兩秒)！$/, '<span class="act">$1</span>！');
+  }
+
   function setStability(v) {
     const before = state.stability;
     state.stability = v;
@@ -614,8 +632,21 @@
     const now = performance.now();
     if (state.screen === 'game') {
       const remaining = Math.max(0, state.timerEnd - now);
-      $('game-timer').textContent = fmtTime(remaining);
-      document.querySelector('.timer-box').classList.toggle('urgent', remaining <= 30000);
+      if (SOLO.active && SOLO.mode === 'endless') {
+        $('game-timer').textContent = fmtTime(SOLO.startAt ? now - SOLO.startAt : 0);
+        document.querySelector('.timer-box').classList.remove('urgent');
+      } else {
+        $('game-timer').textContent = fmtTime(remaining);
+        document.querySelector('.timer-box').classList.toggle('urgent', remaining <= 30000 && remaining > 0);
+      }
+      if (SOLO.active) renderSoloBars(now);
+      if (state.musicOn) {
+        const airFrac = (state.stability - AIR_EMPTY) / (AIR_FULL - AIR_EMPTY);
+        const progress = SOLO.active ? SOLO.progress : 1 - remaining / state.durationMs;
+        const chaos = $('app').classList.contains('chaos') ? 0.3 : 0;
+        DiveMusic.setTension(0.35 * progress + 0.45 * (1 - airFrac) + chaos + (SOLO.active ? SOLO.extra : 0));
+        DiveMusic.setLowAir(state.stability < LOW_AIR);
+      }
 
       if (state.instr.active) {
         const left = Math.max(0, state.instr.duration - (now - state.instr.start));
@@ -648,29 +679,78 @@
     }
   });
 
+  // 開局：先播跳水動畫，最後 3 秒倒數「3、2、1、下潛！」，結束後開始音樂
   let countdownTimers = [];
-  function runCountdown(ms) {
+  function runCountdown(ms, onGo) {
     countdownTimers.forEach(clearTimeout);
     countdownTimers = [];
     const box = $('countdown');
     const num = $('countdown-num');
     const steps = ['3', '2', '1', '下潛！'];
-    const gap = ms / steps.length;
+    const countMs = Math.min(3000, ms);
+    const introMs = ms - countMs;
     $('app').classList.add('locked');
-    box.classList.remove('hidden');
+    box.classList.add('hidden');
+    if (introMs >= 1500) {
+      DiveScenes.intro($('app'), introMs);
+      countdownTimers.push(setTimeout(() => splash(0, 0.7, 0.3), introMs * 0.36));
+    }
+    const gap = countMs / steps.length;
     steps.forEach((t, i) => countdownTimers.push(setTimeout(() => {
+      box.classList.remove('hidden');
       num.textContent = t;
       num.classList.toggle('go', i === steps.length - 1);
       retrigger(num, 'tick');
       if (i === steps.length - 1) sfx.go(); else sfx.beep();
-    }, i * gap)));
+    }, introMs + i * gap)));
     countdownTimers.push(setTimeout(() => {
       box.classList.add('hidden');
       $('app').classList.remove('locked');
+      startMusic();
+      if (onGo) onGo();
     }, ms));
   }
 
+  // ---------------------------------------------------------
+  // 背景音樂
+  // ---------------------------------------------------------
+  function startMusic() {
+    ensureAudio();
+    if (!actx || !DiveMusic.enabled) { state.musicOn = false; return; }
+    DiveMusic.start(actx);
+    state.musicOn = true;
+  }
+  function stopMusic(fade) {
+    DiveMusic.stop(fade);
+    state.musicOn = false;
+  }
+  function paintMusicBtn() { $('btn-music').classList.toggle('off', !DiveMusic.enabled); }
+  paintMusicBtn();
+  $('btn-music').addEventListener('click', () => {
+    DiveMusic.toggle();
+    paintMusicBtn();
+    if (DiveMusic.enabled && state.screen === 'game' && !$('app').classList.contains('locked')) startMusic();
+    else if (!DiveMusic.enabled) stopMusic(0.3);
+    toast(DiveMusic.enabled ? '🎵 音樂開' : '🔇 音樂關');
+  });
+
+  /** 結束：停音樂 → 播結局動畫 → 顯示結算 */
+  function playEnding(reason, air, then) {
+    stopMusic(0.8);
+    state.instr.active = false;
+    countdownTimers.forEach(clearTimeout);
+    $('countdown').classList.add('hidden');
+    $('app').classList.remove('locked', 'chaos', 'low-air', 'fog', 'narc');
+    accidentTimers.forEach(clearTimeout);
+    const kind = DiveScenes.kindFor(reason, air);
+    ensureAudio();
+    if (actx) setTimeout(() => DiveMusic.sting(kind, actx), 500);
+    DiveScenes.ending($('app'), kind, then);
+  }
+
   socket.on('game:started', (g) => {
+    leaveSoloUi();
+    state.durationMs = g.durationMs || 180000;
     state.sliderMax = g.sliderMax || 4;
     state.stepMax = g.stepMax || 10;
     state.level = g.difficulty || 'medium';
@@ -703,16 +783,7 @@
 
   socket.on('instruction:new', (ins) => {
     if (ins.none) return setInstruction(esc(ins.text), { muted: true });
-    let html = esc(ins.text);
-    if (ins.deviceName) html = html.split(esc(ins.deviceName)).join(`<span class="dev-name">${esc(ins.deviceName)}</span>`);
-    html = html
-      .replace(/轉到(東北|東南|西北|西南|北|東|南|西)！/, '轉到<span class="act">$1</span>！')
-      .replace(/「(.+?)」/, '「<span class="act">$1</span>」')
-      .replace(/調到 (\d+)！/, '調到 <span class="act">$1</span>！')
-      .replace(/^把(.+?)(關掉|調到半開|全開)！$/, '把$1<span class="act">$2</span>！')
-      .replace(/^(連按三下|長按)/, '<span class="act">$1</span>')
-      .replace(/(兩秒)！$/, '<span class="act">$1</span>！');
-    setInstruction(html, { timed: true, duration: ins.durationMs });
+    setInstruction(formatInstruction(ins.text, ins.deviceName), { timed: true, duration: ins.durationMs });
     sfx.newInstr();
   });
 
@@ -754,7 +825,8 @@
 
   // 高難度：潛水事故
   let accidentTimers = [];
-  socket.on('accident', ({ kind, ms, text }) => {
+  socket.on('accident', applyAccident);
+  function applyAccident({ kind, ms, text }) {
     if (state.screen !== 'game') return;
     toast(text);
     sweep(900, 200, 0, 0.6, 'sine', 0.12);
@@ -775,7 +847,7 @@
       retrigger(panel, 'swirl');
       accidentTimers.push(setTimeout(() => panel.classList.remove('swirl'), ms));
     }
-  });
+  }
 
   socket.on('stability:update', ({ stability, delta, reason, byName }) => {
     setStability(stability);
@@ -789,11 +861,12 @@
   socket.on('toast', ({ text }) => toast(text));
 
   socket.on('game:over', (r) => {
-    state.instr.active = false;
-    countdownTimers.forEach(clearTimeout);
-    $('countdown').classList.add('hidden');
-    $('app').classList.remove('locked', 'chaos', 'low-air', 'fog', 'narc');
-    accidentTimers.forEach(clearTimeout);
+    if (SOLO.active) return;
+    lastResultSolo = false;
+    playEnding(r.reason, r.stability, () => showMultiResult(r));
+  });
+
+  function showMultiResult(r) {
     const reasons = {
       timeup: '⏰ 潛水時間到！全員平安回到船上',
       collapse: '🫧 氣瓶只剩 20 bar！全員緊急上升',
@@ -815,17 +888,548 @@
         <span class="why">${esc(p.titleWhy || '')}</span>
       </li>`).join('');
     const isHost = state.room && state.room.hostId === socket.id;
+    $('btn-again').textContent = '🔁 回船上再潛一次';
     $('btn-again').classList.toggle('hidden', !isHost);
     $('result-wait').classList.toggle('hidden', isHost);
+    $('btn-result-home').classList.add('hidden');
     showScreen('result');
-    if (r.reason === 'collapse') damageFx(); else sfx.success();
     r.players.forEach((_, i) => setTimeout(() => bubble(0, 300 + i * 60), 250 + i * 350));
-  });
+  }
 
-  $('btn-again').addEventListener('click', () => socket.emit('game:lobby'));
+  let lastResultSolo = false;
+  $('btn-again').addEventListener('click', () => {
+    if (lastResultSolo) startSolo();
+    else socket.emit('game:lobby');
+  });
+  $('btn-result-home').addEventListener('click', () => { leaveSoloUi(); showScreen('home'); });
 
   socket.on('disconnect', () => {
+    if (SOLO.active || state.screen === 'solo' || lastResultSolo) return;
     toast('與潛水船的連線中斷了……');
     showScreen('home');
   });
+
+  // =========================================================
+  // 單人練習：AI 潛伴用語音喊你，機關都在自己手上
+  // =========================================================
+  const SOLO_LEVELS = {
+    easy: { label: '🐠 體驗潛水', count: 6, conc: 1, ms: [9000, 6500], wrong: 2, timeout: 4, bonus: 3, rate: 1.0, hide: 0, accidents: false, chaosMs: 0 },
+    medium: { label: '🐬 進階潛水員', count: 6, conc: 2, ms: [9500, 6500], wrong: 4, timeout: 6, bonus: 2, rate: 1.1, hide: 0, accidents: false, chaosMs: 30000 },
+    hard: { label: '🦈 技術潛水', count: 6, conc: 2, ms: [10000, 6500], wrong: 5, timeout: 8, bonus: 1, rate: 1.2, hide: 0.45, accidents: true, chaosMs: 45000 },
+  };
+  const SOLO_TIMED_MS = (/[?&]debug/.test(location.search) && Number(new URLSearchParams(location.search).get('solosec')) * 1000) || 180000; // 測試用可縮短
+  const BUDDIES = [
+    { e: '🐢', n: '龜龜教練', pitch: 0.75 },
+    { e: '🐙', n: '八爪阿姨', pitch: 1.35 },
+    { e: '🐡', n: '膨膨', pitch: 1.7 },
+    { e: '🦈', n: '豆丁鯊', pitch: 1.0 },
+  ];
+  const THANKS = ['讚啦！', '你是神！', '手速很可以喔', '下一潛帶你去綠島', '這就是默契！', '水下推進器本人'];
+  const SOLO_WRONG = ['你在按什麼啦！', '那顆不是我說的！', '手滑了齁？', '教練在搖頭了', '別亂摸！'];
+  const SOLO_TIMEOUT = ['我喊到沒氣了……', '你有在聽嗎？', '我的指令沉到海底了', '算了我自己來……'];
+  const CN_NUM = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const canSpeak = 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+
+  const SOLO = { active: false, running: false, progress: 0, extra: 0, orders: [], mode: 'timed', level: 'medium' };
+  if (/[?&]debug/.test(location.search)) window.__solo = SOLO;
+  let soloBank = null;
+  let soloVoice = null;
+
+  // ---- 和伺服器相同的機關規則（單人版在手機上自己判斷） ----
+  const SLIDE_NAME = { 0: '拉到底部', 2: '推到中間', 4: '推到頂端' };
+  const TRI_NAME = ['關掉', '調到半開', '全開'];
+  function soloMode(level, d) {
+    switch (d.type) {
+      case 'button': return level === 'hard' ? 'gesture' : 'tap';
+      case 'switch': return level === 'easy' ? 'twoWay' : 'threeWay';
+      case 'slider': return level === 'hard' ? 'step10' : 'range5';
+      case 'compass': return level === 'hard' ? 'dir8' : 'dir4';
+      default: return 'options';
+    }
+  }
+  const readyOf = (d) => (d.type === 'switch' ? (d.target === 'on' ? 'off' : 'on') : d.type === 'slider' ? (d.target === 0 ? 4 : 0) : null);
+  function soloInitial(level, d) {
+    const r = (arr) => arr[Math.floor(Math.random() * arr.length)];
+    switch (soloMode(level, d)) {
+      case 'twoWay': return readyOf(d);
+      case 'threeWay': return r([0, 1, 2]);
+      case 'range5': return level === 'easy' ? readyOf(d) : r([0, 2, 4]);
+      case 'step10': return Math.floor(Math.random() * 11);
+      case 'dir4': return r(DIRS);
+      case 'dir8': return r(DIR8);
+      case 'options': return Math.floor(Math.random() * d.options.length);
+      default: return null;
+    }
+  }
+  /** 回傳 { target, text, key }；key 是語音辨識時要聽到的關鍵字 */
+  function soloBuild(level, d, current) {
+    const other = (arr) => { const o = arr.filter((v) => v !== current); return o[Math.floor(Math.random() * o.length)]; };
+    switch (soloMode(level, d)) {
+      case 'tap': return { target: 'press', text: d.instruction, key: '' };
+      case 'twoWay': return { target: d.target, text: d.instruction, key: d.target === 'on' ? '開' : '關' };
+      case 'range5': {
+        if (level === 'easy') return { target: d.target, text: d.instruction, key: { 0: '底', 2: '中', 4: '頂' }[d.target] };
+        const t = other([0, 2, 4]);
+        return { target: t, text: `把${d.name}${SLIDE_NAME[t]}！`, key: { 0: '底', 2: '中', 4: '頂' }[t] };
+      }
+      case 'gesture': {
+        const t = pick(['press', 'press', 'triple', 'hold']);
+        if (t === 'triple') return { target: t, text: `連按三下${d.name}！`, key: '三' };
+        if (t === 'hold') return { target: t, text: `長按${d.name}兩秒！`, key: '長' };
+        return { target: t, text: d.instruction, key: '' };
+      }
+      case 'threeWay': { const t = other([0, 1, 2]); return { target: t, text: `把${d.name}${TRI_NAME[t]}！`, key: ['關', '半', '全'][t] }; }
+      case 'step10': { const t = other([...Array(11).keys()]); return { target: t, text: `把${d.name}調到 ${t}！`, key: String(t) }; }
+      case 'dir4':
+      case 'dir8': { const t = other(level === 'hard' ? DIR8 : DIRS); return { target: t, text: `把${d.name}轉到${DIR_NAME[t]}！`, key: DIR_NAME[t] }; }
+      case 'options': { const t = other([...d.options.keys()]); return { target: t, text: `把${d.name}轉到「${d.options[t]}」！`, key: d.options[t] }; }
+      default: return { target: 'press', text: d.instruction, key: '' };
+    }
+  }
+  function mixTypes(list) {
+    const buckets = Object.values(list.reduce((a, d) => ((a[d.type] = a[d.type] || []).push(d), a), {}))
+      .map((b) => b.sort(() => Math.random() - 0.5)).sort(() => Math.random() - 0.5);
+    const out = [];
+    while (buckets.some((b) => b.length)) for (const b of buckets) if (b.length) out.push(b.pop());
+    return out;
+  }
+
+  // ---- 設定畫面 ----
+  const soloPrefs = { level: storageGet('solo-level') || 'medium', mode: storageGet('solo-mode') || 'timed' };
+  const bestKey = (level, mode) => `dive-best-${level}-${mode}`;
+  function getBest(level, mode) { try { return JSON.parse(storageGet(bestKey(level, mode))) || null; } catch (e) { return null; } }
+  function renderSoloSetup() {
+    $('solo-diff').querySelectorAll('.diff').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.level === soloPrefs.level)));
+    $('solo-mode').querySelectorAll('.diff').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === soloPrefs.mode)));
+    $('solo-mic-row').classList.toggle('hidden', !SR);
+    $('solo-music').checked = DiveMusic.enabled;
+    if (!canSpeak) { $('solo-voice').checked = false; $('solo-voice').disabled = true; }
+    $('solo-best').innerHTML = ['easy', 'medium', 'hard'].map((lv) => {
+      const b = getBest(lv, soloPrefs.mode);
+      return `<div class="best-cell">${SOLO_LEVELS[lv].label}<b>${b ? b.score.toLocaleString() : '—'}</b>${b ? `完成 ${b.completed}` : '還沒玩過'}</div>`;
+    }).join('');
+  }
+  $('btn-solo').addEventListener('click', () => {
+    ensureAudio();
+    renderSoloSetup();
+    showScreen('solo');
+    loadSoloBank().catch(() => {});
+  });
+  $('btn-solo-back').addEventListener('click', () => showScreen('home'));
+  $('solo-diff').addEventListener('click', (e) => {
+    const b = e.target.closest('.diff');
+    if (!b) return;
+    soloPrefs.level = b.dataset.level;
+    storageSet('solo-level', soloPrefs.level);
+    sfx.click();
+    renderSoloSetup();
+  });
+  $('solo-mode').addEventListener('click', (e) => {
+    const b = e.target.closest('.diff');
+    if (!b) return;
+    soloPrefs.mode = b.dataset.mode;
+    storageSet('solo-mode', soloPrefs.mode);
+    sfx.click();
+    renderSoloSetup();
+  });
+  $('solo-music').addEventListener('change', (e) => {
+    if (e.target.checked !== DiveMusic.enabled) DiveMusic.toggle();
+    paintMusicBtn();
+  });
+  $('btn-solo-start').addEventListener('click', () => startSolo());
+
+  async function loadSoloBank() {
+    if (soloBank) return soloBank;
+    const res = await fetch('/api/devices');
+    const data = await res.json();
+    if (!data.ok) throw new Error('bank');
+    soloBank = data;
+    return data;
+  }
+
+  // ---- 語音朗讀 ----
+  function pickVoice() {
+    if (!canSpeak) return null;
+    const voices = speechSynthesis.getVoices();
+    return voices.find((v) => /zh[-_]TW/i.test(v.lang)) || voices.find((v) => /zh[-_](HK|Hant)/i.test(v.lang))
+      || voices.find((v) => /^zh/i.test(v.lang)) || null;
+  }
+  if (canSpeak) {
+    soloVoice = pickVoice();
+    speechSynthesis.addEventListener && speechSynthesis.addEventListener('voiceschanged', () => { soloVoice = pickVoice(); });
+  }
+  function speak(text, buddy, onStart) {
+    if (!SOLO.voice || !canSpeak) { onStart(); return; }
+    const u = new SpeechSynthesisUtterance(text.replace(/[「」]/g, ''));
+    u.lang = (soloVoice && soloVoice.lang) || 'zh-TW';
+    if (soloVoice) u.voice = soloVoice;
+    u.rate = SOLO.L.rate * (SOLO.mode === 'endless' ? 1 + Math.min(0.25, SOLO.extra) : 1);
+    u.pitch = buddy.pitch;
+    let started = false;
+    const go = () => { if (!started) { started = true; onStart(); } };
+    u.onstart = go;
+    u.onerror = go;
+    setTimeout(go, 3500); // 有些手機不會觸發 onstart，最多等 3.5 秒就開始計時
+    speechSynthesis.speak(u);
+  }
+
+  // ---- 開始 ----
+  async function startSolo() {
+    ensureAudio();
+    let bank;
+    try { bank = await loadSoloBank(); } catch (e) { toast('載入題庫失敗，請檢查網路再試一次'); return; }
+    const level = soloPrefs.level;
+    const L = SOLO_LEVELS[level];
+    const pool = mixTypes(bank.devices.filter((d) => (bank.typeLevels[d.type] || []).includes(level)));
+    if (pool.length < L.count) { toast('這個難度的機關不夠，請到後台多啟用幾個'); return; }
+    if (canSpeak) { try { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(' ')); } catch (e) { /* 解鎖語音 */ } }
+
+    Object.assign(SOLO, {
+      active: true, running: false, level, mode: soloPrefs.mode, L,
+      voice: $('solo-voice').checked && canSpeak, mic: !!SR && $('solo-mic').checked,
+      air: AIR_FULL, orders: [], mine: pool.slice(0, L.count), relayPool: pool.slice(L.count),
+      relayState: new Map(), stats: { completed: 0, failed: 0, wrong: 0, combo: 0, bestCombo: 0, react: [] },
+      startAt: 0, nextOrderAt: 0, lastDevice: null, lastPenaltyAt: 0, chaos: false, lastAccidentAt: 0,
+      progress: 0, extra: 0, tick: null, ended: false,
+    });
+    lastResultSolo = true;
+    state.level = level;
+    state.sliderMax = 4;
+    state.stepMax = 10;
+    state.durationMs = SOLO_TIMED_MS;
+    state.timerEnd = performance.now() + 6500 + SOLO_TIMED_MS;
+    state.lowAirWarned = false;
+    $('app').classList.add('solo-mode');
+    $('app').classList.remove('chaos', 'low-air', 'fog', 'narc');
+    $('solo-orders').classList.remove('hidden');
+    $('solo-orders').innerHTML = '';
+    $('instruction-text').innerHTML = '';
+    $('level-chip').textContent = `${L.label}｜${SOLO.mode === 'timed' ? '計時' : '無盡'}`;
+    $('timer-label').textContent = SOLO.mode === 'timed' ? '剩餘潛水時間' : '已潛時間';
+    devices.clear();
+    const panel = $('panel');
+    panel.innerHTML = '';
+    SOLO.mine.forEach((d) => panel.appendChild(createDevice({ ...d, mode: soloMode(level, d), value: soloInitial(level, d) })));
+    showScreen('game');
+    setStability(AIR_FULL);
+    renderOrders();
+    runCountdown(6500, soloBegin);
+  }
+
+  function soloBegin() {
+    if (!SOLO.active) return;
+    SOLO.running = true;
+    SOLO.startAt = performance.now();
+    state.timerEnd = SOLO.startAt + SOLO_TIMED_MS;
+    SOLO.nextOrderAt = SOLO.startAt + 300;
+    SOLO.tick = setInterval(soloTick, 150);
+  }
+
+  function soloTick() {
+    if (!SOLO.running) return;
+    const now = performance.now();
+    const elapsed = now - SOLO.startAt;
+    const L = SOLO.L;
+    const timed = SOLO.mode === 'timed';
+    if (timed && elapsed >= SOLO_TIMED_MS) return endSolo('timeup');
+    SOLO.progress = Math.min(1, elapsed / SOLO_TIMED_MS);
+    SOLO.extra = timed ? 0 : Math.min(0.6, Math.max(0, (elapsed - SOLO_TIMED_MS) / 200000));
+
+    // 洋流失控：計時模式最後 N 秒；無盡模式 2 分 30 秒後
+    const chaosAt = timed ? SOLO_TIMED_MS - L.chaosMs : 150000;
+    if (!SOLO.chaos && (L.chaosMs > 0 || !timed) && elapsed >= chaosAt) {
+      SOLO.chaos = true;
+      $('app').classList.add('chaos');
+      sfx.alarm();
+      if (navigator.vibrate) navigator.vibrate([80, 40, 80, 40, 80]);
+      toast('🌊 洋流失控！潛伴們開始亂喊了！');
+    }
+    if (SOLO.chaos && L.accidents && now - SOLO.lastAccidentAt > 7000) {
+      SOLO.lastAccidentAt = now;
+      applyAccident(pick([
+        { kind: 'fog', ms: 3500, text: '🌫️ 面鏡起霧！什麼都看不清楚' },
+        { kind: 'current', ms: 1200, text: '🌊 洋流把你的裝備沖亂了！' },
+        { kind: 'narcosis', ms: 5000, text: '🍸 氮醉了！字都顛倒了' },
+      ]));
+    }
+
+    // 逾時
+    for (const o of SOLO.orders.slice()) {
+      if (o.startedAt && now - o.startedAt >= o.duration) soloTimeout(o);
+      if (!SOLO.running) return;
+    }
+    // 配發新指令
+    let conc = L.conc + (SOLO.chaos ? 1 : 0) + (!timed && elapsed > 120000 ? 1 : 0);
+    conc = Math.min(conc, SOLO.mine.length - 1, 3); // 畫面最多同時 3 條
+    if (SOLO.orders.length < conc && now >= SOLO.nextOrderAt) {
+      issueSoloOrder(now, elapsed);
+      SOLO.nextOrderAt = now + 700 + Math.random() * (SOLO.chaos ? 700 : 1500);
+    }
+  }
+
+  function issueSoloOrder(now, elapsed) {
+    const L = SOLO.L;
+    const busyBuddies = new Set(SOLO.orders.map((o) => o.buddy));
+    const buddy = pick(BUDDIES.filter((b) => !busyBuddies.has(b)).length ? BUDDIES.filter((b) => !busyBuddies.has(b)) : BUDDIES);
+    let dur = L.ms[0] - (L.ms[0] - L.ms[1]) * SOLO.progress;
+    if (SOLO.mode === 'endless') dur = Math.max(3500, dur * (1 - 0.35 * Math.min(1, SOLO.extra / 0.6)));
+
+    // 偶爾換你喊（需要語音辨識）
+    if (SOLO.mic && SOLO.relayPool.length && !SOLO.orders.some((o) => o.relay) && Math.random() < 0.22) {
+      const d = pick(SOLO.relayPool);
+      const cur = SOLO.relayState.has(d.id) ? SOLO.relayState.get(d.id) : soloInitial(SOLO.level, d);
+      const b = soloBuild(SOLO.level, d, cur);
+      SOLO.relayState.set(d.id, b.target);
+      const o = { id: Math.random().toString(36).slice(2), relay: true, buddy, dev: d, text: b.text, key: b.key, target: b.target, duration: dur * 1.6, startedAt: now };
+      SOLO.orders.push(o);
+      renderOrders();
+      sfx.newInstr();
+      return;
+    }
+
+    const targeted = new Set(SOLO.orders.filter((o) => !o.relay).map((o) => o.deviceId));
+    let cands = SOLO.mine.filter((d) => !targeted.has(d.id));
+    if (cands.length > 1) cands = cands.filter((d) => d.id !== SOLO.lastDevice);
+    if (!cands.length) return;
+    const d = pick(cands);
+    const entry = devices.get(d.id);
+    if (SOLO.level === 'easy') {
+      const ready = readyOf(d);
+      if (ready !== null && entry.data.value !== ready) setDeviceValue(d.id, ready);
+    }
+    const b = soloBuild(SOLO.level, d, entry.data.value);
+    const o = {
+      id: Math.random().toString(36).slice(2), relay: false, buddy, deviceId: d.id, dev: d, text: b.text, target: b.target,
+      hidden: L.hide > 0 && Math.random() < L.hide, duration: dur, startedAt: 0, issuedAt: now,
+    };
+    SOLO.lastDevice = d.id;
+    SOLO.orders.push(o);
+    renderOrders();
+    speak(o.text, buddy, () => { if (!o.startedAt && SOLO.orders.includes(o)) { o.startedAt = performance.now(); } });
+    if (!SOLO.voice) sfx.newInstr();
+  }
+
+  function renderOrders() {
+    const box = $('solo-orders');
+    const keep = new Set(SOLO.orders.map((o) => o.id));
+    box.querySelectorAll('.order').forEach((el) => { if (!keep.has(el.dataset.id) && !el.classList.contains('done')) el.remove(); });
+    for (const o of SOLO.orders) {
+      if (box.querySelector(`.order[data-id="${o.id}"]`)) continue;
+      const el = document.createElement('div');
+      el.className = `order ${o.relay ? 'relay' : ''}`;
+      el.dataset.id = o.id;
+      const say = o.relay
+        ? `跟 ${esc(o.buddy.n)} 喊：${formatInstruction(o.text, o.dev.name)}`
+        : o.hidden ? `🔊 ${esc(o.buddy.n)} 在喊……（點這裡再聽一次）` : formatInstruction(o.text, o.dev.name);
+      el.innerHTML = `<span class="who">${o.buddy.e}</span><span class="say ${o.hidden ? 'hidden-text' : ''}">${say}</span>
+        ${o.relay ? '<button type="button" class="mic" aria-label="按下後對手機喊">🎤</button>' : ''}<span class="bar"></span>`;
+      if (o.hidden) el.addEventListener('click', () => speak(o.text, o.buddy, () => {}));
+      if (o.relay) el.querySelector('.mic').addEventListener('click', () => listenRelay(o, el));
+      box.appendChild(el);
+    }
+    if (!SOLO.orders.length && SOLO.running) {
+      if (!box.querySelector('.idle')) box.insertAdjacentHTML('beforeend', '<p class="idle text-center text-sm text-sky-900/70">🫧 潛伴們在換氣……</p>');
+    } else box.querySelectorAll('.idle').forEach((x) => x.remove());
+  }
+
+  function renderSoloBars(now) {
+    for (const o of SOLO.orders) {
+      const el = document.querySelector(`.order[data-id="${o.id}"] .bar`);
+      if (!el) continue;
+      const frac = o.startedAt ? Math.max(0, 1 - (now - o.startedAt) / o.duration) : 1;
+      el.style.width = `${frac * 100}%`;
+      el.classList.toggle('warn', frac <= 0.5 && frac > 0.25);
+      el.classList.toggle('danger', frac <= 0.25);
+    }
+  }
+
+  function removeOrder(o) {
+    SOLO.orders = SOLO.orders.filter((x) => x !== o);
+    const el = document.querySelector(`.order[data-id="${o.id}"]`);
+    if (el) { el.classList.add('done'); setTimeout(() => { el.remove(); renderOrders(); }, 380); }
+    if (o.recog) { try { o.recog.abort(); } catch (e) { /* 略過 */ } }
+  }
+
+  function changeAir(delta) {
+    SOLO.air = Math.max(AIR_EMPTY, Math.min(AIR_FULL, SOLO.air + delta));
+    setStability(SOLO.air);
+    if (delta < 0) damageFx();
+    if (SOLO.air <= AIR_EMPTY) endSolo('collapse');
+  }
+
+  function soloSuccess(o) {
+    const st = SOLO.stats;
+    st.completed++;
+    st.combo++;
+    st.bestCombo = Math.max(st.bestCombo, st.combo);
+    if (o.startedAt) st.react.push(performance.now() - o.startedAt);
+    removeOrder(o);
+    flashSuccess();
+    toast(`${o.buddy.e} ${o.buddy.n}：${pick(THANKS)}${st.combo >= 3 ? `（${st.combo} 連擊！）` : ''}`);
+    changeAir(SOLO.L.bonus);
+  }
+
+  function soloTimeout(o) {
+    SOLO.stats.failed++;
+    SOLO.stats.combo = 0;
+    removeOrder(o);
+    sfx.timeout();
+    toast(`${o.buddy.e} ${o.buddy.n}：${pick(SOLO_TIMEOUT)}`);
+    changeAir(-SOLO.L.timeout);
+  }
+
+  function soloOperate(id, value) {
+    if (!SOLO.running) return;
+    const dv = devices.get(id);
+    const o = SOLO.orders.find((x) => !x.relay && x.deviceId === id);
+    if (o && value === o.target) {
+      retrigger(dv.el, 'ok');
+      sfx.helped();
+      soloSuccess(o);
+      if (SOLO.level === 'easy') {
+        const ready = readyOf(o.dev);
+        if (ready !== null) setTimeout(() => { if (SOLO.running && !SOLO.orders.some((x) => x.deviceId === id)) setDeviceValue(id, ready); }, 700);
+      }
+      return;
+    }
+    if (o) {
+      const old = dv.el.querySelector('.hint');
+      if (old) old.remove();
+      const hint = document.createElement('span');
+      hint.className = 'hint';
+      hint.textContent = dv.data.type === 'button' ? '按法不對！' : '還沒到位！';
+      dv.el.appendChild(hint);
+      setTimeout(() => hint.remove(), 1500);
+      return;
+    }
+    retrigger(dv.el, 'bad');
+    const now = performance.now();
+    if (now - SOLO.lastPenaltyAt < 1000) return;
+    SOLO.lastPenaltyAt = now;
+    SOLO.stats.wrong++;
+    SOLO.stats.combo = 0;
+    toast(`${pick(BUDDIES).e} ${pick(SOLO_WRONG)}`);
+    changeAir(-SOLO.L.wrong);
+  }
+
+  // ---- 換你喊：語音辨識 ----
+  function normalizeSpeech(s) {
+    return String(s).replace(/[\s，。！？、「」,.!?：:]/g, '').replace(/\d+/g, (n) => (Number(n) <= 10 ? CN_NUM[Number(n)] : n));
+  }
+  function relayMatches(transcript, o) {
+    const t = normalizeSpeech(transcript);
+    const name = normalizeSpeech(o.dev.name);
+    let hit = 0;
+    for (const ch of name) if (t.includes(ch)) hit++;
+    const key = normalizeSpeech(o.key || '');
+    return hit / name.length >= 0.6 && (!key || t.includes(key) || [...key].filter((c) => t.includes(c)).length / key.length >= 0.6);
+  }
+  function listenRelay(o, el) {
+    if (!SR || o.recog) return;
+    if (canSpeak) speechSynthesis.cancel();
+    const rec = new SR();
+    o.recog = rec;
+    rec.lang = 'zh-TW';
+    rec.interimResults = false;
+    rec.maxAlternatives = 4;
+    const btn = el.querySelector('.mic');
+    btn.classList.add('listening');
+    rec.onresult = (ev) => {
+      const alts = [...ev.results[0]].map((a) => a.transcript);
+      if (alts.some((a) => relayMatches(a, o))) {
+        if (SOLO.orders.includes(o)) soloSuccess(o);
+      } else {
+        toast(`🎤 ${o.buddy.n} 沒聽懂：「${alts[0] || '……'}」再喊一次！`);
+      }
+    };
+    rec.onerror = (ev) => { toast(ev.error === 'not-allowed' ? '🎤 需要允許使用麥克風' : '🎤 沒聽到，再按一次喊喊看'); };
+    rec.onend = () => { o.recog = null; btn.classList.remove('listening'); };
+    try { rec.start(); } catch (e) { o.recog = null; btn.classList.remove('listening'); }
+  }
+
+  // ---- 結束 ----
+  function endSolo(reason) {
+    if (!SOLO.running) return;
+    SOLO.running = false;
+    clearInterval(SOLO.tick);
+    if (canSpeak) speechSynthesis.cancel();
+    SOLO.orders.forEach((o) => { if (o.recog) try { o.recog.abort(); } catch (e) { /* 略過 */ } });
+    const elapsed = performance.now() - SOLO.startAt;
+    const st = SOLO.stats;
+    const timed = SOLO.mode === 'timed';
+    const score = st.completed * 100 + st.bestCombo * 25 + (timed ? (reason === 'timeup' ? (SOLO.air - AIR_EMPTY) * 5 : 0) : Math.floor(elapsed / 1000) * 2);
+    const prev = getBest(SOLO.level, SOLO.mode);
+    const isRecord = !prev || score > prev.score;
+    if (isRecord) storageSet(bestKey(SOLO.level, SOLO.mode), JSON.stringify({ score, completed: st.completed, date: new Date().toISOString().slice(0, 10) }));
+    const result = { reason, score, isRecord, prevBest: prev ? prev.score : 0, elapsed, air: SOLO.air, level: SOLO.level, mode: SOLO.mode };
+    playEnding(reason, SOLO.air, () => showSoloResult(result));
+  }
+
+  function soloTitle(r) {
+    const st = SOLO.stats;
+    const avg = st.react.length ? st.react.reduce((a, b) => a + b, 0) / st.react.length : 0;
+    if (r.reason === 'collapse') return ['👻 在海底領便當的潛水員', `撐了 ${fmtTime(r.elapsed)}，氣瓶先投降了`];
+    if (st.wrong === 0 && st.completed >= 10) return ['🧘 中性浮力之神', '零失誤，穩到可以在水裡打坐'];
+    if (avg && avg < 2200 && st.completed >= 8) return ['⚡ 閃電鬼蝠魟', `平均 ${(avg / 1000).toFixed(1)} 秒就搞定，手速快到起水泡`];
+    if (st.bestCombo >= 10) return ['🐬 連擊海豚', `最高 ${st.bestCombo} 連擊，潛伴們看傻了`];
+    if (st.wrong >= 6) return ['🐡 一碰就爆的河豚', `亂按 ${st.wrong} 次，裝備都被你玩壞了`];
+    if (st.failed >= 6) return ['🐢 被海龜超車的潛水員', `${st.failed} 條指令沒接到，海龜回頭看了你一眼`];
+    return pick([
+      ['🫧 只會吐泡泡的觀光客', '全程貢獻最多的是氣泡'],
+      ['🦀 橫著走的迷路螃蟹', '指北針在你手上也沒用'],
+      ['🧜 自以為是美人魚的大叔', '動作很優雅，效率很普通'],
+      ['🐙 手太多的章魚哥', '手很忙，但不一定按對'],
+    ]);
+  }
+
+  function showSoloResult(r) {
+    const st = SOLO.stats;
+    const L = SOLO.L;
+    const reasons = { timeup: '⏰ 潛水時間到，平安回船', collapse: '🫧 氣瓶只剩 20 bar，緊急上升' };
+    $('result-reason').textContent = `${L.label}｜${r.mode === 'timed' ? '計時 3 分鐘' : '無盡下潛'}｜${reasons[r.reason] || ''}`;
+    $('result-rank').textContent = `得分 ${r.score.toLocaleString()}${r.isRecord ? '　🎉 新紀錄！' : ''}`;
+    $('result-completed').textContent = st.completed;
+    $('result-failed').textContent = st.failed;
+    $('result-wrong').textContent = st.wrong;
+    $('result-stability').textContent = `${r.air} bar`;
+    $('result-time').textContent = fmtTime(r.elapsed);
+    const [title, why] = soloTitle(r);
+    const avg = st.react.length ? (st.react.reduce((a, b) => a + b, 0) / st.react.length / 1000).toFixed(1) : '—';
+    const outcome = DiveScenes.kindFor(r.reason, r.air);
+    const quotes = {
+      safe: ['下一潛帶你去蘭嶼！', '這默契可以考潛水長了', '今天的你值得一杯珍奶'],
+      panting: ['還行啦，下次別喘成這樣', '你差點讓我們上新聞', '先去旁邊喘一下'],
+      passout: ['……我們把你拖上船了', '下次記得看殘壓表好嗎', '你的氣瓶比你先放棄'],
+    }[outcome];
+    $('result-players').innerHTML = `
+      <li class="award pop-in me" style="animation-delay:.25s">
+        <span class="pos">🏅</span>
+        <span class="who">你<small>最高 ${st.bestCombo} 連擊｜平均 ${avg} 秒</small></span>
+        <span class="title">${esc(title)}</span>
+        <span class="why">${esc(why)}${r.isRecord ? '' : `（最高紀錄 ${r.prevBest.toLocaleString()}）`}</span>
+      </li>
+      ${BUDDIES.slice(0, 3).map((b, i) => `
+      <li class="award pop-in" style="animation-delay:${0.6 + i * 0.3}s">
+        <span class="pos">${b.e}</span>
+        <span class="who">${esc(b.n)}</span>
+        <span class="why">「${esc(quotes[i % quotes.length])}」</span>
+      </li>`).join('')}`;
+    $('btn-again').textContent = '🔁 再潛一次';
+    $('btn-again').classList.remove('hidden');
+    $('result-wait').classList.add('hidden');
+    $('btn-result-home').classList.remove('hidden');
+    SOLO.active = false;
+    showScreen('result');
+    if (r.isRecord) setTimeout(() => sfx.success(), 600);
+  }
+
+  function leaveSoloUi() {
+    if (SOLO.running) { SOLO.running = false; clearInterval(SOLO.tick); if (canSpeak) speechSynthesis.cancel(); }
+    SOLO.active = false;
+    $('app').classList.remove('solo-mode');
+    $('solo-orders').classList.add('hidden');
+    $('solo-orders').innerHTML = '';
+    $('timer-label').textContent = '剩餘潛水時間';
+  }
 })();

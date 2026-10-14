@@ -448,6 +448,203 @@ input { user-select: text; -webkit-user-select: text; }
 #app.narc #instruction-text { animation: narc 2.2s ease-in-out infinite; }
 @keyframes narc { 0%, 100% { transform: rotate(180deg) skewX(-6deg); } 50% { transform: rotate(172deg) skewX(8deg) scale(1.04); filter: hue-rotate(60deg); } }
 
+/* =========================================================
+   開場／結局動畫
+   ========================================================= */
+.scene { position: absolute; inset: 0; z-index: 45; overflow: hidden; --surface: 22%; transition: opacity .35s; }
+.scene.fade { opacity: 0; }
+.scene .sky { position: absolute; left: 0; right: 0; top: 0; height: var(--surface); background: linear-gradient(180deg, #7dd3fc, #e0f2fe); }
+.scene .sky::before { content: '☀️'; position: absolute; right: 12%; top: 18%; font-size: 2.2rem; }
+.scene .sea { position: absolute; left: 0; right: 0; top: var(--surface); bottom: 0; background: linear-gradient(180deg, #0ea5e9, #0369a1 30%, #0c4a6e 65%, #04121f); }
+.scene .surface {
+  position: absolute; left: -10%; right: -10%; top: calc(var(--surface) - 6px); height: 14px;
+  background: radial-gradient(ellipse 18px 7px at 50% 0, #e0f2fe 60%, transparent 62%) 0 0 / 36px 14px repeat-x;
+  animation: waves 2s linear infinite;
+}
+@keyframes waves { to { background-position: 36px 0; } }
+.scene .boat { position: absolute; width: 62%; left: 6%; top: calc(var(--surface) - 62px); animation: rock 2.4s ease-in-out infinite; transform-origin: 50% 80%; }
+@keyframes rock { 50% { transform: rotate(-2.5deg) translateY(2px); } }
+.scene .diver-wrap { position: absolute; width: 24%; left: 50%; top: 55%; transform: translate(-50%, -50%); }
+.scene .diver { width: 100%; height: auto; overflow: visible; filter: drop-shadow(0 6px 8px rgba(0, 0, 0, .35)); }
+.scene .diver .cheek, .scene .diver .sweat, .scene .diver .eyes-x { opacity: 0; }
+.scene .caption {
+  position: absolute; left: 50%; bottom: 12%; transform: translateX(-50%); width: 88%; text-align: center; margin: 0;
+  font-family: "Noto Serif TC", serif; font-weight: 900; font-size: 1.35rem; color: #e0f7ff;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, .7);
+}
+.scene .caption.final { animation: pop .4s cubic-bezier(.2, 1.6, .4, 1); font-size: 1.45rem; }
+.scene .skip { position: absolute; left: 0; right: 0; bottom: 4%; text-align: center; font-size: .75rem; color: rgba(224, 242, 254, .6); margin: 0; }
+.scene .depth {
+  position: absolute; right: 14px; top: calc(var(--surface) + 14px); font-family: ui-monospace, monospace; font-weight: 900;
+  color: #e0f7ff; background: rgba(0, 0, 0, .45); border: 1px solid #0e7490; border-radius: .5rem; padding: .1rem .5rem; opacity: 0;
+}
+.scene .splash { position: absolute; left: 76%; top: var(--surface); width: 0; height: 0; opacity: 0; }
+.scene .splash i { position: absolute; width: 10px; height: 18px; border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%; background: #e0f2fe; }
+.scene .splash i:nth-child(1) { --x: -40px; --y: -50px; }
+.scene .splash i:nth-child(2) { --x: -18px; --y: -70px; }
+.scene .splash i:nth-child(3) { --x: 4px; --y: -80px; }
+.scene .splash i:nth-child(4) { --x: 24px; --y: -64px; }
+.scene .splash i:nth-child(5) { --x: 42px; --y: -44px; }
+.scene-bubbles { position: absolute; inset: 0; pointer-events: none; }
+.scene-bubbles i {
+  position: absolute; top: 70%; border-radius: 50%; border: 1px solid rgba(224, 242, 254, .7);
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, .9), rgba(186, 230, 253, .2) 60%);
+  animation: scene-rise 2s ease-in infinite; opacity: 0;
+}
+@keyframes scene-rise { 0% { transform: translateY(0); opacity: 0; } 15% { opacity: .9; } 100% { transform: translate(10px, -50vh); opacity: 0; } }
+
+/* ---- 開場：背滾下水 → 往下潛 ---- */
+.scene-intro .diver-wrap { animation: intro-diver var(--dur) ease-in-out forwards; }
+@keyframes intro-diver {
+  0%, 16% { left: 66%; top: calc(var(--surface) - 105px); transform: translate(-50%, -50%) rotate(0deg); }
+  36% { left: 80%; top: calc(var(--surface) + 30px); transform: translate(-50%, -50%) rotate(-200deg); }
+  55% { left: 62%; top: 42%; transform: translate(-50%, -50%) rotate(-360deg); }
+  100% { left: 50%; top: 56%; transform: translate(-50%, -50%) rotate(-360deg); }
+}
+.scene-intro .sky, .scene-intro .surface, .scene-intro .boat, .scene-intro .sky::before { animation: intro-camera var(--dur) ease-in forwards; }
+.scene-intro .boat { animation: intro-camera var(--dur) ease-in forwards; }
+@keyframes intro-camera { 0%, 45% { transform: translateY(0); } 100% { transform: translateY(-45vh); } }
+.scene-intro .sea { animation: intro-dark var(--dur) ease-in forwards; }
+@keyframes intro-dark { 0%, 40% { filter: brightness(1); } 100% { filter: brightness(.55); top: 0; } }
+.scene-intro .splash { animation: splash-show var(--dur) linear forwards; }
+@keyframes splash-show { 0%, 33% { opacity: 0; } 36% { opacity: 1; } 55%, 100% { opacity: 0; } }
+.scene-intro .splash i { animation: splash-drop var(--dur) ease-out forwards; }
+@keyframes splash-drop { 0%, 34% { transform: translate(0, 0) scale(.4); } 52%, 100% { transform: translate(var(--x), var(--y)) scale(1); } }
+.scene-intro .scene-bubbles { animation: show-late var(--dur) linear forwards; }
+.scene-intro .depth { animation: show-late var(--dur) linear forwards; }
+@keyframes show-late { 0%, 40% { opacity: 0; } 50%, 100% { opacity: 1; } }
+
+/* ---- 結局 1：安全上升 ---- */
+.end-safe .diver-wrap { animation: safe-up var(--dur) ease-in-out forwards; }
+@keyframes safe-up {
+  0% { top: 88%; }
+  30%, 52% { top: 52%; }
+  82%, 100% { top: calc(var(--surface) + 40px); }
+}
+.end-safe .sea { animation: lighten var(--dur) ease-in forwards; }
+@keyframes lighten { from { filter: brightness(.6); } to { filter: brightness(1.1); } }
+.end-safe .ok, .end-safe .sparkle { position: absolute; font-size: 2.6rem; opacity: 0; }
+.end-safe .ok { left: 62%; top: calc(var(--surface) - 10px); animation: appear-late var(--dur) forwards; }
+.end-safe .sparkle { left: 28%; top: calc(var(--surface) - 30px); animation: appear-late var(--dur) forwards, twinkle .6s ease-in-out infinite alternate; }
+@keyframes appear-late { 0%, 82% { opacity: 0; transform: scale(.4); } 92%, 100% { opacity: 1; transform: scale(1); } }
+@keyframes twinkle { to { filter: brightness(1.6); } }
+
+/* ---- 結局 2：衝上水面、喘氣 ---- */
+.end-panting .diver-wrap { left: 74%; animation: pant-up var(--dur) cubic-bezier(.2, .9, .3, 1) forwards; }
+.end-panting .splash { left: 74% !important; }
+.end-panting .huff { left: 74% !important; }
+@keyframes pant-up {
+  0% { top: 92%; }
+  26% { top: calc(var(--surface) + 40px); }
+  40% { top: calc(var(--surface) + 32px); }
+  55% { top: calc(var(--surface) + 44px); }
+  70% { top: calc(var(--surface) + 32px); }
+  85%, 100% { top: calc(var(--surface) + 42px); }
+}
+.end-panting .splash { left: 50%; animation: splash-show-early var(--dur) linear forwards; }
+@keyframes splash-show-early { 0%, 22% { opacity: 0; } 26% { opacity: 1; } 45%, 100% { opacity: 0; } }
+.end-panting .splash i { animation: splash-drop-early var(--dur) ease-out forwards; }
+@keyframes splash-drop-early { 0%, 24% { transform: scale(.4); } 42%, 100% { transform: translate(var(--x), var(--y)) scale(1); } }
+.end-panting .diver .cheek, .end-panting .diver .sweat { animation: appear-mid var(--dur) forwards; }
+@keyframes appear-mid { 0%, 28% { opacity: 0; } 34%, 100% { opacity: 1; } }
+.end-panting .diver .reg { animation: reg-off var(--dur) forwards; }
+@keyframes reg-off { 0%, 30% { transform: none; } 40%, 100% { transform: translate(18px, 10px) rotate(30deg); } }
+.end-panting .huff { position: absolute; left: 50%; top: calc(var(--surface) - 30px); }
+.end-panting .huff b {
+  position: absolute; font-family: "Noto Serif TC", serif; font-size: 1.5rem; color: #0c4a6e; opacity: 0;
+  text-shadow: 0 0 6px #fff; animation: huff 1.2s ease-out infinite;
+}
+.end-panting .huff b:nth-child(1) { left: -70px; animation-delay: 1.4s; }
+.end-panting .huff b:nth-child(2) { left: 40px; animation-delay: 1.8s; }
+.end-panting .huff b:nth-child(3) { left: -20px; animation-delay: 2.2s; }
+@keyframes huff { 0% { opacity: 0; transform: translateY(0) scale(.6); } 30% { opacity: 1; } 100% { opacity: 0; transform: translateY(-40px) scale(1.2); } }
+
+/* ---- 結局 3：pass out 沉下去 ---- */
+.end-passout .sea { animation: darken var(--dur) ease-in forwards; }
+@keyframes darken { from { filter: brightness(.8); } to { filter: brightness(.35) saturate(.6); } }
+.end-passout .diver-wrap { animation: sink var(--dur) ease-in forwards; }
+@keyframes sink {
+  0%, 30% { top: 50%; transform: translate(-50%, -50%) rotate(0deg); }
+  45% { top: 52%; transform: translate(-50%, -50%) rotate(-25deg); }
+  100% { top: 84%; transform: translate(-50%, -50%) rotate(-95deg); }
+}
+.end-passout .diver .eyes { animation: eyes-off var(--dur) forwards; }
+.end-passout .diver .eyes-x { animation: eyes-on var(--dur) forwards; }
+@keyframes eyes-off { 0%, 30% { opacity: 1; } 34%, 100% { opacity: 0; } }
+@keyframes eyes-on { 0%, 30% { opacity: 0; } 34%, 100% { opacity: 1; } }
+.end-passout .diver .reg { animation: reg-drop var(--dur) forwards; transform-origin: 50px 54px; }
+@keyframes reg-drop { 0%, 20% { transform: none; opacity: 1; } 60% { transform: translate(14px, 40px) rotate(60deg); opacity: .8; } 100% { transform: translate(20px, 70px) rotate(120deg); opacity: 0; } }
+.end-passout .ghost {
+  position: absolute; left: 50%; top: 60%; font-size: 3rem; opacity: 0; transform: translateX(-50%);
+  animation: ghost var(--dur) ease-out forwards;
+}
+@keyframes ghost { 0%, 45% { opacity: 0; top: 70%; } 60% { opacity: .9; } 100% { opacity: .9; top: 28%; transform: translateX(-50%) rotate(-8deg); } }
+.end-passout::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  box-shadow: inset 0 0 80px 30px rgba(0, 0, 0, .8); animation: appear-mid var(--dur) forwards;
+}
+
+/* 音樂開關 */
+.timer-box { position: relative; }
+.music-btn {
+  position: absolute; right: -9px; top: -9px; z-index: 6; width: 24px; height: 24px; border-radius: 50%; line-height: 1;
+  font-size: .72rem; background: #061a2b; border: 1px solid rgba(103, 232, 249, .45);
+}
+.music-btn.off { opacity: .45; text-decoration: line-through; }
+
+/* 首頁：單人入口 */
+.solo-entry {
+  display: flex; flex-direction: column; align-items: center; gap: .1rem; padding: .7rem 1rem; border-radius: 1rem;
+  font-weight: 900; font-size: 1.05rem; color: #ecfeff; background: rgba(14, 116, 144, .35); border: 1.5px dashed rgba(103, 232, 249, .6);
+}
+.solo-entry small { font-weight: 500; font-size: .72rem; color: rgba(207, 250, 254, .75); }
+.solo-entry:active { transform: scale(.98); }
+.diff[data-mode] { padding: .6rem .3rem; }
+.toggle-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; font-weight: 900; font-size: .95rem; }
+.toggle-row small { display: block; font-weight: 500; font-size: .7rem; color: rgba(207, 250, 254, .65); }
+.toggle-row input { width: 1.4rem; height: 1.4rem; accent-color: var(--orange); flex-shrink: 0; }
+.toggle-row.hidden { display: none; }
+.best-cell { background: rgba(0, 0, 0, .3); border-radius: .6rem; padding: .35rem .2rem; }
+.best-cell b { display: block; font-size: .95rem; color: var(--yellow); }
+
+/* 單人：多位 AI 潛伴同時喊 */
+.solo-orders { position: relative; z-index: 10; width: 100%; display: flex; flex-direction: column; gap: .35rem; }
+.solo-orders.hidden { display: none; }
+.order {
+  position: relative; display: flex; align-items: center; gap: .4rem; padding: .28rem .45rem .45rem; border-radius: .7rem;
+  background: rgba(255, 255, 255, .75); border: 1.5px solid rgba(11, 42, 61, .25); overflow: hidden; animation: pop .3s;
+}
+.order .who { font-size: 1.35rem; line-height: 1; flex-shrink: 0; }
+.order .say { flex: 1; font-family: "Noto Serif TC", serif; font-weight: 900; color: #0b2a3d; font-size: clamp(.84rem, 4.1vw, 1.05rem); line-height: 1.25; text-wrap: balance; }
+.order .say .dev-name { color: #9a3412; background: rgba(250, 204, 21, .45); border-radius: .25em; padding: 0 .15em; }
+.order .say .act { color: #fff; background: #dc2626; border-radius: .25em; padding: 0 .2em; }
+.order .say.hidden-text { color: #335466; font-size: .95rem; }
+.order .bar { position: absolute; left: 0; bottom: 0; height: 4px; background: linear-gradient(90deg, #0891b2, #67e8f9); }
+.order .bar.warn { background: #f59e0b; }
+.order .bar.danger { background: #dc2626; }
+.order .mic {
+  flex-shrink: 0; width: 2.4rem; height: 2.4rem; border-radius: 50%; font-size: 1.1rem; color: #fff;
+  background: linear-gradient(180deg, #fb7185, #dc2626); box-shadow: 0 3px 0 #7f1d1d;
+}
+.order .mic.listening { animation: pulse .7s ease-in-out infinite; background: linear-gradient(180deg, #4ade80, #16a34a); }
+.order.relay { border-color: #dc2626; background: rgba(254, 226, 226, .85); }
+.order.done { animation: order-done .4s forwards; }
+@keyframes order-done { to { transform: scale(.9); opacity: 0; } }
+.solo-mode #instruction-zone > p.instruction-text, .solo-mode #instruction-zone > p:first-of-type { display: none; }
+.solo-mode #instruction-zone > div.absolute, .solo-mode #instr-seconds { display: none; }
+.solo-mode #instruction-zone { justify-content: flex-start; padding-top: 30px; padding-bottom: 8px; }
+.solo-mode .solo-orders { gap: .3rem; }
+.solo-mode .toast { top: calc(max(10%, 56px) + 30% - 18px); }
+.solo-mode #panel { grid-template-rows: repeat(3, minmax(0, 1fr)); gap: .5rem; padding: .5rem; }
+.solo-mode .device { padding: .35rem .4rem .45rem; }
+.solo-mode .magic-btn { width: min(20vw, 5.4rem); }
+.solo-mode .compass { width: min(24vw, 6.4rem); }
+.solo-mode .lever-track { height: min(11vw, 3rem); }
+.solo-mode .stepper button { width: min(9.5vw, 2.5rem); }
+.solo-mode .stepper .step-val { font-size: min(8vw, 2rem); }
+.solo-mode .knob { width: min(15vw, 4.2rem); }
+.solo-mode .device-plate { font-size: clamp(.72rem, 3.3vw, .88rem); padding: .2rem .35rem; }
+
 @media (prefers-reduced-motion: reduce) {
   .ocean-bg::before, .bubbles span, .sonar i, .title-diver, .magic-btn-core, #app.chaos .gear-panel { animation: none; }
 }

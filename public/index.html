@@ -34,7 +34,7 @@
     <div class="text-center">
       <div class="title-diver mx-auto mb-3 text-6xl">🤿</div>
       <h1 class="glow-title font-serif text-4xl font-black tracking-widest">深海大亂潛</h1>
-      <p class="mt-2 text-sm text-cyan-100/80">2–10 人｜機關在潛伴手上，大聲喊出來！</p>
+      <p class="mt-2 text-sm text-cyan-100/80">多人連線｜機關在潛伴手上，大聲喊出來！</p>
     </div>
 
     <div class="glass-card w-full space-y-4 p-5">
@@ -56,6 +56,42 @@
         <button id="btn-join" class="btn-secondary">上船</button>
       </div>
     </div>
+
+    <button id="btn-solo" class="solo-entry w-full">🎧 單人練習<small>AI 潛伴用語音喊你</small></button>
+  </section>
+
+  <!-- ==================== 單人練習設定 ==================== -->
+  <section id="screen-solo" class="screen relative hidden h-full flex-col gap-3 overflow-y-auto px-5 py-5">
+    <div class="text-center">
+      <h1 class="glow-title font-serif text-3xl font-black">🎧 單人練習</h1>
+      <p class="mt-1 text-sm text-cyan-100/80">AI 潛伴會「用說的」喊指令，戴耳機或開聲音玩</p>
+    </div>
+    <div class="glass-card p-3">
+      <h2 class="mb-2 font-serif text-lg font-black">難度</h2>
+      <div id="solo-diff" class="grid grid-cols-3 gap-2" role="radiogroup" aria-label="難度">
+        <button type="button" class="diff" data-level="easy" role="radio"><b>🐠</b><span>體驗潛水</span><small>一次一條</small></button>
+        <button type="button" class="diff" data-level="medium" role="radio"><b>🐬</b><span>進階潛水員</span><small>兩人同時喊</small></button>
+        <button type="button" class="diff" data-level="hard" role="radio"><b>🦈</b><span>技術潛水</span><small>亂喊＋只聽聲音＋事故</small></button>
+      </div>
+    </div>
+    <div class="glass-card p-3">
+      <h2 class="mb-2 font-serif text-lg font-black">玩法</h2>
+      <div id="solo-mode" class="grid grid-cols-2 gap-2" role="radiogroup" aria-label="玩法">
+        <button type="button" class="diff" data-mode="timed" role="radio"><b>⏱️</b><span>計時 3 分鐘</span><small>撐到下班</small></button>
+        <button type="button" class="diff" data-mode="endless" role="radio"><b>♾️</b><span>無盡下潛</span><small>越來越快，撐到沒氣</small></button>
+      </div>
+    </div>
+    <div class="glass-card space-y-2 p-3">
+      <label class="toggle-row"><span>🔊 AI 潛伴語音</span><input id="solo-voice" type="checkbox" checked></label>
+      <label class="toggle-row"><span>🎵 背景音樂</span><input id="solo-music" type="checkbox" checked></label>
+      <label id="solo-mic-row" class="toggle-row hidden"><span>🎤 我也要喊<small>偶爾要你對手機喊指令給潛伴（需要麥克風）</small></span><input id="solo-mic" type="checkbox"></label>
+    </div>
+    <div class="glass-card p-3">
+      <h2 class="mb-1 font-serif text-lg font-black">🏆 我的最高分</h2>
+      <div id="solo-best" class="grid grid-cols-3 gap-2 text-center text-xs"></div>
+    </div>
+    <button id="btn-solo-start" class="btn-primary w-full">🌊 開始下潛</button>
+    <button id="btn-solo-back" class="text-sm text-cyan-100/60 underline">回首頁</button>
   </section>
 
   <!-- ==================== 大廳 ==================== -->
@@ -95,7 +131,7 @@
   <!-- ==================== 遊戲畫面 ==================== -->
   <section id="screen-game" class="screen relative hidden h-full flex-col">
     <!-- 頂部狀態區（10%）：氣瓶壓力錶 + 潛水時間 -->
-    <header class="status-bar flex h-[10%] min-h-[56px] items-center gap-3 px-3">
+    <header class="status-bar relative flex h-[10%] min-h-[56px] items-center gap-3 px-3">
       <div class="flex-1">
         <div class="mb-1 flex items-center justify-between text-xs font-bold">
           <span id="air-label">🫧 氣瓶壓力</span>
@@ -106,7 +142,8 @@
         </div>
       </div>
       <div class="timer-box flex flex-col items-center justify-center rounded-xl px-3 py-1">
-        <span class="text-[10px] text-cyan-100/70">剩餘潛水時間</span>
+        <button id="btn-music" class="music-btn" type="button" aria-label="背景音樂開關">🎵</button>
+        <span id="timer-label" class="text-[10px] text-cyan-100/70">剩餘潛水時間</span>
         <span id="game-timer" class="font-mono text-xl font-black">3:00</span>
       </div>
     </header>
@@ -116,6 +153,7 @@
       <div class="sonar" aria-hidden="true"><i></i><i></i><i></i></div>
       <p class="relative z-10 mb-1 text-xs font-bold tracking-widest text-sky-900/80">📣 大聲喊給潛伴聽！</p>
       <span id="level-chip" class="level-chip"></span>
+      <div id="solo-orders" class="solo-orders hidden"></div>
       <p id="instruction-text" class="instruction-text relative z-10 text-center font-serif font-black leading-snug text-[#0b2a3d]">
         準備下水……
       </p>
@@ -150,6 +188,7 @@
     </div>
     <button id="btn-again" class="btn-primary w-full">🔁 回船上再潛一次</button>
     <p id="result-wait" class="hidden text-center text-sm text-cyan-100/80">等待船長回到大廳……</p>
+    <button id="btn-result-home" class="hidden text-sm text-cyan-100/60 underline">回首頁</button>
   </section>
 
   <!-- 全螢幕特效層 -->
@@ -161,6 +200,8 @@
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
+<script src="js/music.js"></script>
+<script src="js/scenes.js"></script>
 <script src="js/client.js"></script>
 </body>
 </html>
