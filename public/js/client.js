@@ -692,7 +692,7 @@
     $('app').classList.add('locked');
     box.classList.add('hidden');
     if (introMs >= 1500) {
-      DiveScenes.intro($('app'), introMs);
+      PixelScenes.intro($('app'), introMs);
       countdownTimers.push(setTimeout(() => splash(0, 0.7, 0.3), introMs * 0.36));
     }
     const gap = countMs / steps.length;
@@ -742,10 +742,10 @@
     $('countdown').classList.add('hidden');
     $('app').classList.remove('locked', 'chaos', 'low-air', 'fog', 'narc');
     accidentTimers.forEach(clearTimeout);
-    const kind = DiveScenes.kindFor(reason, air);
+    const kind = PixelScenes.kindFor(reason, air);
     ensureAudio();
     if (actx) setTimeout(() => DiveMusic.sting(kind, actx), 500);
-    DiveScenes.ending($('app'), kind, then);
+    PixelScenes.ending($('app'), kind, then, 5000);
   }
 
   socket.on('game:started', (g) => {
@@ -1396,7 +1396,7 @@
     $('result-time').textContent = fmtTime(r.elapsed);
     const [title, why] = soloTitle(r);
     const avg = st.react.length ? (st.react.reduce((a, b) => a + b, 0) / st.react.length / 1000).toFixed(1) : '—';
-    const outcome = DiveScenes.kindFor(r.reason, r.air);
+    const outcome = PixelScenes.kindFor(r.reason, r.air);
     const quotes = {
       safe: ['下一潛帶你去蘭嶼！', '這默契可以考潛水長了', '今天的你值得一杯珍奶'],
       panting: ['還行啦，下次別喘成這樣', '你差點讓我們上新聞', '先去旁邊喘一下'],

@@ -584,6 +584,11 @@ input { user-select: text; -webkit-user-select: text; }
   box-shadow: inset 0 0 80px 30px rgba(0, 0, 0, .8); animation: appear-mid var(--dur) forwards;
 }
 
+/* 像素風動畫：畫布放大但不模糊 */
+.pixel-scene { background: #04121f; }
+.pixel-scene canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; }
+.pixel-scene .caption { font-family: "Noto Sans TC", sans-serif; letter-spacing: .05em; text-shadow: 2px 2px 0 #04121f, -1px -1px 0 #04121f; }
+
 /* 音樂開關 */
 .timer-box { position: relative; }
 .music-btn {
