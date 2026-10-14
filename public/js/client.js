@@ -134,6 +134,16 @@
   });
   codeInput.addEventListener('input', () => { codeInput.value = codeInput.value.toUpperCase(); });
 
+  // 隱藏的後台入口：長按首頁標題 3 秒
+  (() => {
+    const title = document.querySelector('#screen-home h1');
+    let timer = null;
+    const cancelPress = () => clearTimeout(timer);
+    title.addEventListener('pointerdown', () => { timer = setTimeout(() => { location.href = '/admin'; }, 3000); });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => title.addEventListener(ev, cancelPress));
+    title.addEventListener('contextmenu', (e) => e.preventDefault());
+  })();
+
   // ---------------------------------------------------------
   // 大廳
   // ---------------------------------------------------------

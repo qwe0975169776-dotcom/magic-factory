@@ -32,7 +32,40 @@ const CONFIG = {
   NEXT_INSTRUCTION_DELAY_MS: 1200,// 完成/失敗後多久配發下一條指令
   START_STAGGER_MS: 500,          // 開局時每位玩家指令錯開時間
   NAME_MAX: 12,
+  ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || '12345678', // 後台密碼（建議在 Render 設定 ADMIN_PASSWORD 改掉）
+  RESULTS_MAX: 300,
 };
+
+// 後台可調整的遊戲參數：key → [說明, 最小值, 最大值]
+const SETTING_RULES = {
+  GAME_SECONDS: ['一局秒數', 30, 900],
+  INSTRUCTION_SECONDS: ['每條指令秒數', 5, 60],
+  MIN_PLAYERS: ['最低開局人數', 2, 10],
+  WRONG_PENALTY: ['亂按扣分', 0, 50],
+  TIMEOUT_PENALTY: ['逾時扣分', 0, 50],
+  SUCCESS_BONUS: ['完成回復', 0, 20],
+  WRONG_COOLDOWN_SECONDS: ['亂按冷卻秒數', 0, 10],
+};
+function getSettings() {
+  return {
+    GAME_SECONDS: CONFIG.GAME_DURATION_MS / 1000,
+    INSTRUCTION_SECONDS: CONFIG.INSTRUCTION_MS / 1000,
+    MIN_PLAYERS: CONFIG.MIN_PLAYERS,
+    WRONG_PENALTY: CONFIG.WRONG_PENALTY,
+    TIMEOUT_PENALTY: CONFIG.TIMEOUT_PENALTY,
+    SUCCESS_BONUS: CONFIG.SUCCESS_BONUS,
+    WRONG_COOLDOWN_SECONDS: CONFIG.WRONG_COOLDOWN_MS / 1000,
+  };
+}
+function applySettings(s) {
+  CONFIG.GAME_DURATION_MS = s.GAME_SECONDS * 1000;
+  CONFIG.INSTRUCTION_MS = s.INSTRUCTION_SECONDS * 1000;
+  CONFIG.MIN_PLAYERS = s.MIN_PLAYERS;
+  CONFIG.WRONG_PENALTY = s.WRONG_PENALTY;
+  CONFIG.TIMEOUT_PENALTY = s.TIMEOUT_PENALTY;
+  CONFIG.SUCCESS_BONUS = s.SUCCESS_BONUS;
+  CONFIG.WRONG_COOLDOWN_MS = s.WRONG_COOLDOWN_SECONDS * 1000;
+}
 
 const SLIDER_MAX = 4; // 滑桿 0~4 共五格：0=底、2=中、4=頂
 const TYPES = new Set(['button', 'switch', 'slider']);
@@ -61,46 +94,50 @@ function resolveTarget(d) {
   return null;
 }
 
-function loadDevices() {
-  const file = path.join(__dirname, 'data', 'devices.json');
-  const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-  if (!Array.isArray(raw)) throw new Error('data/devices.json 必須是 JSON 陣列');
-  const seen = new Set();
+/** 檢查並整理題庫；回傳 { list, errors } */
+function sanitizeDevices(raw) {
+  const errors = [];
   const list = [];
-  for (const d of raw) {
-    if (!d || !d.id || !d.name || !TYPES.has(d.type)) {
-      console.warn('[題庫] 格式錯誤，略過：', d && d.id);
-      continue;
+  if (!Array.isArray(raw)) return { list, errors: ['題庫必須是陣列'] };
+  const seen = new Set();
+  raw.forEach((d, i) => {
+    const label = `第 ${i + 1} 筆${d && d.name ? `（${d.name}）` : ''}`;
+    if (!d || !String(d.id || '').trim() || !String(d.name || '').trim() || !TYPES.has(d.type)) {
+      errors.push(`${label}：缺少 id、名稱或類型`);
+      return;
     }
-    if (seen.has(d.id)) {
-      console.warn('[題庫] id 重複，略過：', d.id);
-      continue;
-    }
+    const id = String(d.id).trim();
+    if (seen.has(id)) return errors.push(`${label}：id「${id}」重複`);
     const target = resolveTarget(d);
-    if (target === null) {
-      console.warn('[題庫] 看不懂操作狀態，略過：', d.id);
-      continue;
-    }
-    seen.add(d.id);
+    if (target === null) return errors.push(`${label}：看不懂操作狀態`);
+    seen.add(id);
+    const name = String(d.name).trim().slice(0, 40);
+    const action = String(d.action || '').trim().slice(0, 20);
     list.push({
-      id: String(d.id),
-      name: String(d.name),
+      id,
+      name,
       type: d.type,
-      action: String(d.action || ''),
-      instruction: String(d.instruction || `${d.action}${d.name}！`),
+      action,
+      instruction: String(d.instruction || '').trim().slice(0, 80) || (d.type === 'slider' ? `把${name}${action}！` : `${action}${name}！`),
       target,
+      enabled: d.enabled !== false,
     });
-  }
+  });
+  return { list, errors };
+}
+
+function loadDefaultDevices() {
+  const file = path.join(__dirname, 'data', 'devices.json');
+  const { list, errors } = sanitizeDevices(JSON.parse(fs.readFileSync(file, 'utf8')));
+  errors.forEach((e) => console.warn('[題庫]', e));
   return list;
 }
 
-const DEVICES = loadDevices();
-const DEVICE_MAP = new Map(DEVICES.map((d) => [d.id, d]));
-const MAX_PLAYERS = Math.min(CONFIG.MAX_PLAYERS, Math.floor(DEVICES.length / CONFIG.DEVICES_PER_PLAYER));
-if (MAX_PLAYERS < CONFIG.MIN_PLAYERS) {
-  throw new Error(`題庫只有 ${DEVICES.length} 個機關，不夠 ${CONFIG.MIN_PLAYERS} 人遊玩`);
-}
-console.log(`[題庫] 載入 ${DEVICES.length} 個魔法機關，最多 ${MAX_PLAYERS} 人一房`);
+let DEVICES = loadDefaultDevices();
+const activeDevices = () => DEVICES.filter((d) => d.enabled);
+const maxPlayers = () => Math.min(CONFIG.MAX_PLAYERS, Math.floor(activeDevices().length / CONFIG.DEVICES_PER_PLAYER));
+const DEFAULT_SETTINGS = getSettings();
+console.log(`[題庫] 載入 ${DEVICES.length} 個魔法機關，最多 ${maxPlayers()} 人一房`);
 
 /** 機關「待命」狀態：與目標相反，保證玩家操作一次就能達成 */
 function readyValue(dev) {
@@ -147,14 +184,124 @@ function generateCode() {
 // 伺服器
 // ============================================================
 const app = express();
+app.set('trust proxy', 1);
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/health', (_req, res) => res.json({ ok: true, rooms: rooms.size }));
+app.use('/api/admin', express.json({ limit: '200kb' }));
+app.get('/admin', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
+
+// ============================================================
+// 後台 API（密碼登入後取得 token）
+// ============================================================
+const crypto = require('crypto');
+const adminTokens = new Map();   // token → 到期時間
+const loginAttempts = new Map(); // ip → { count, until }
+const TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
+
+function safeEqual(a, b) {
+  const ha = crypto.createHash('sha256').update(String(a)).digest();
+  const hb = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
+function requireAdmin(req, res, next) {
+  const token = String(req.get('x-admin-token') || '');
+  const exp = adminTokens.get(token);
+  if (!exp || exp < Date.now()) {
+    adminTokens.delete(token);
+    return res.status(401).json({ ok: false, error: '請重新登入' });
+  }
+  next();
+}
+
+function adminDeviceView(d) {
+  const sliderName = { 4: 'max', 2: 'mid', 0: 'min' };
+  return { ...d, target: d.type === 'slider' ? sliderName[d.target] : d.target };
+}
+
+function adminState() {
+  return {
+    settings: getSettings(),
+    defaults: DEFAULT_SETTINGS,
+    rules: SETTING_RULES,
+    devices: DEVICES.map(adminDeviceView),
+    activeCount: activeDevices().length,
+    maxPlayers: maxPlayers(),
+    results: gameLog,
+    usingDefaultPassword: !process.env.ADMIN_PASSWORD,
+  };
+}
+
+app.post('/api/admin/login', (req, res) => {
+  const ip = req.ip;
+  const rec = loginAttempts.get(ip) || { count: 0, until: 0 };
+  if (rec.until > Date.now()) return res.status(429).json({ ok: false, error: '嘗試太多次，請 10 分鐘後再試' });
+  if (!safeEqual((req.body && req.body.password) || '', CONFIG.ADMIN_PASSWORD)) {
+    rec.count++;
+    if (rec.count >= 8) { rec.count = 0; rec.until = Date.now() + 10 * 60 * 1000; }
+    loginAttempts.set(ip, rec);
+    return res.status(401).json({ ok: false, error: '密碼錯誤' });
+  }
+  loginAttempts.delete(ip);
+  const token = crypto.randomBytes(24).toString('hex');
+  adminTokens.set(token, Date.now() + TOKEN_TTL_MS);
+  res.json({ ok: true, token });
+});
+
+app.get('/api/admin/state', requireAdmin, (_req, res) => res.json({ ok: true, ...adminState() }));
+
+app.put('/api/admin/settings', requireAdmin, (req, res) => {
+  const input = req.body || {};
+  const next = getSettings();
+  for (const [key, [label, min, max]] of Object.entries(SETTING_RULES)) {
+    if (input[key] === undefined) continue;
+    const v = Number(input[key]);
+    if (!Number.isFinite(v) || v < min || v > max) {
+      return res.status(400).json({ ok: false, error: `「${label}」要介於 ${min} 到 ${max}` });
+    }
+    next[key] = key === 'MIN_PLAYERS' ? Math.round(v) : Math.round(v * 10) / 10;
+  }
+  if (next.MIN_PLAYERS > maxPlayers()) {
+    return res.status(400).json({ ok: false, error: `目前啟用的機關只夠 ${maxPlayers()} 人，最低人數不能超過這個數字` });
+  }
+  applySettings(next);
+  res.json({ ok: true, ...adminState() });
+});
+
+app.post('/api/admin/settings/reset', requireAdmin, (_req, res) => {
+  applySettings(DEFAULT_SETTINGS);
+  res.json({ ok: true, ...adminState() });
+});
+
+app.put('/api/admin/devices', requireAdmin, (req, res) => {
+  const { list, errors } = sanitizeDevices(req.body && req.body.devices);
+  if (errors.length) return res.status(400).json({ ok: false, error: errors.slice(0, 5).join('\n') });
+  const enabled = list.filter((d) => d.enabled).length;
+  const needed = CONFIG.MIN_PLAYERS * CONFIG.DEVICES_PER_PLAYER;
+  if (enabled < needed) {
+    return res.status(400).json({ ok: false, error: `至少要啟用 ${needed} 個機關（${CONFIG.MIN_PLAYERS} 人 × 每人 4 個），目前只有 ${enabled} 個` });
+  }
+  DEVICES = list;
+  res.json({ ok: true, ...adminState() });
+});
+
+app.post('/api/admin/devices/reset', requireAdmin, (_req, res) => {
+  DEVICES = loadDefaultDevices();
+  res.json({ ok: true, ...adminState() });
+});
+
+app.delete('/api/admin/results', requireAdmin, (_req, res) => {
+  gameLog.length = 0;
+  res.json({ ok: true, ...adminState() });
+});
 
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
 /** @type {Map<string, any>} 房間碼 → 房間 */
 const rooms = new Map();
+/** 成績紀錄（只存在記憶體，伺服器休眠後清空） */
+const gameLog = [];
 
 function newPlayer(id, name) {
   return { id, name, devices: [], instruction: null, lastDeviceId: null, requested: 0, helped: 0, mistakes: 0, lastPenaltyAt: 0 };
@@ -171,6 +318,7 @@ function createRoom(hostId) {
     endsAt: 0,
     deviceOwner: new Map(), // deviceId → playerId
     deviceState: new Map(), // deviceId → 目前狀態
+    devMap: new Map(),      // 本局題庫快照
     stats: { completed: 0, failed: 0, wrong: 0 },
     timeouts: new Set(),
     tickInterval: null,
@@ -212,7 +360,7 @@ function publicRoom(room) {
     hostId: room.hostId,
     state: room.state,
     minPlayers: CONFIG.MIN_PLAYERS,
-    maxPlayers: MAX_PLAYERS,
+    maxPlayers: maxPlayers(),
     players: [...room.players.values()].map((p) => ({ id: p.id, name: p.name, isHost: p.id === room.hostId })),
   };
 }
@@ -220,7 +368,7 @@ function emitRoom(room) {
   io.to(room.code).emit('room:update', publicRoom(room));
 }
 function deviceView(room, id) {
-  const d = DEVICE_MAP.get(id);
+  const d = room.devMap.get(id);
   return { id: d.id, name: d.name, type: d.type, action: d.action, value: room.deviceState.get(id) };
 }
 function setDeviceState(room, deviceId, value, notifyOwner) {
@@ -237,7 +385,8 @@ function setDeviceState(room, deviceId, value, notifyOwner) {
 function startGame(room) {
   clearAllTimers(room);
   const players = [...room.players.values()];
-  const pool = shuffle(DEVICES.slice());
+  const pool = shuffle(activeDevices().slice());
+  room.devMap = new Map(pool.map((d) => [d.id, d])); // 本局題庫快照：後台中途修改不影響進行中的遊戲
 
   room.deviceOwner.clear();
   room.deviceState.clear();
@@ -260,7 +409,7 @@ function startGame(room) {
     p.lastPenaltyAt = 0;
     for (const id of p.devices) {
       room.deviceOwner.set(id, p.id);
-      room.deviceState.set(id, readyValue(DEVICE_MAP.get(id)));
+      room.deviceState.set(id, readyValue(room.devMap.get(id)));
     }
   });
 
@@ -311,7 +460,7 @@ function issueInstruction(room, playerId) {
   }
 
   const deviceId = candidates[Math.floor(Math.random() * candidates.length)];
-  const dev = DEVICE_MAP.get(deviceId);
+  const dev = room.devMap.get(deviceId);
 
   // 若機關目前不在待命狀態（例如剛被亂撥），先強制歸位
   const ready = readyValue(dev);
@@ -348,7 +497,7 @@ function onInstructionTimeout(room, playerId, instruction) {
 
 /** 指令驗證 */
 function handleOperate(room, operator, deviceId, rawValue) {
-  const dev = DEVICE_MAP.get(deviceId);
+  const dev = room.devMap.get(deviceId);
   if (!dev || room.deviceOwner.get(deviceId) !== operator.id) return; // 只能操作自己畫面上的機關
 
   const value = normalizeValue(dev, rawValue);
@@ -443,6 +592,20 @@ function endGame(room, reason) {
       .sort((a, b) => b.helped - a.helped || a.mistakes - b.mistakes),
   };
   io.to(room.code).emit('game:over', room.result);
+  gameLog.unshift({
+    time: new Date().toISOString(),
+    code: room.code,
+    playerCount: room.players.size,
+    names: room.result.players.map((p) => p.name),
+    reason,
+    rank,
+    completed: s.completed,
+    failed: s.failed,
+    wrong: s.wrong,
+    stability: room.stability,
+    survivedSeconds: Math.round(survivedMs / 1000),
+  });
+  if (gameLog.length > CONFIG.RESULTS_MAX) gameLog.length = CONFIG.RESULTS_MAX;
   emitRoom(room);
 }
 
@@ -519,7 +682,7 @@ io.on('connection', (socket) => {
     const room = rooms.get(code);
     if (!room) return reply(ack, { ok: false, error: '找不到這個房間，請確認邀請碼' });
     if (room.state !== 'lobby') return reply(ack, { ok: false, error: '這座工廠已經開工了，請等下一局' });
-    if (room.players.size >= MAX_PLAYERS) return reply(ack, { ok: false, error: `房間已滿（最多 ${MAX_PLAYERS} 人）` });
+    if (room.players.size >= maxPlayers()) return reply(ack, { ok: false, error: `房間已滿（最多 ${maxPlayers()} 人）` });
 
     removePlayer(socket);
     let name = cleanName(payload && payload.name);
@@ -545,6 +708,9 @@ io.on('connection', (socket) => {
     if (room.state !== 'lobby') return reply(ack, { ok: false, error: '遊戲已經開始了' });
     if (room.players.size < CONFIG.MIN_PLAYERS) {
       return reply(ack, { ok: false, error: `至少需要 ${CONFIG.MIN_PLAYERS} 人才能開工` });
+    }
+    if (room.players.size > maxPlayers()) {
+      return reply(ack, { ok: false, error: `題庫啟用的機關只夠 ${maxPlayers()} 人玩，請老師到後台多啟用幾個` });
     }
     reply(ack, { ok: true });
     startGame(room);

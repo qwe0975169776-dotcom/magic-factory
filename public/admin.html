@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <title>工廠管理室</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { theme: { extend: { fontFamily: { sans: ['"Noto Sans TC"', 'system-ui', 'sans-serif'] } } } };</script>
+  <style>
+    body { background: radial-gradient(circle at 50% 0%, #2b1a0e, #120c08 70%) fixed; }
+    .card { background: linear-gradient(160deg, rgba(58,36,20,.92), rgba(26,16,9,.95)); border: 2px solid #7a5517; border-radius: 1rem; }
+    .field { width: 100%; border-radius: .6rem; border: 1.5px solid #7a5517; background: rgba(0,0,0,.4); padding: .5rem .7rem; color: #fffbeb; outline: none; }
+    .field:focus { border-color: #fbbf24; }
+    .btn { border-radius: .75rem; padding: .55rem 1rem; font-weight: 800; transition: transform .08s, filter .2s; }
+    .btn:active { transform: translateY(2px); }
+    .btn:disabled { filter: grayscale(1) brightness(.6); }
+    .btn-gold { color: #2a1606; background: linear-gradient(180deg, #fde68a, #d99a1e); box-shadow: 0 3px 0 #6b4207; }
+    .btn-ghost { color: #fde68a; background: rgba(0,0,0,.35); border: 1px solid #7a5517; }
+    .btn-red { color: #fff1f2; background: rgba(190,18,60,.55); border: 1px solid #be123c; }
+    .tab[aria-selected="true"] { background: #d99a1e; color: #2a1606; }
+    .dev.off { opacity: .45; }
+    .hidden { display: none !important; }
+    table td, table th { padding: .45rem .5rem; white-space: nowrap; }
+  </style>
+</head>
+<body class="min-h-[100dvh] font-sans text-amber-50 antialiased">
+
+<!-- 登入 -->
+<section id="login" class="flex min-h-[100dvh] items-center justify-center px-6">
+  <form id="login-form" class="card w-full max-w-sm space-y-4 p-6">
+    <h1 class="text-center text-2xl font-black">🔐 工廠管理室</h1>
+    <input id="password" type="password" class="field text-lg" placeholder="請輸入管理密碼" autocomplete="current-password" required>
+    <button class="btn btn-gold w-full text-lg">進入</button>
+    <p id="login-error" class="min-h-[1.25rem] text-center text-sm text-rose-300"></p>
+  </form>
+</section>
+
+<!-- 後台 -->
+<section id="admin" class="mx-auto hidden max-w-3xl px-4 pb-28 pt-4">
+  <header class="mb-3 flex items-center justify-between">
+    <h1 class="text-2xl font-black">⚙️ 工廠管理室</h1>
+    <div class="flex gap-2">
+      <a href="/" class="btn btn-ghost text-sm">回遊戲</a>
+      <button id="btn-logout" class="btn btn-ghost text-sm">登出</button>
+    </div>
+  </header>
+
+  <div class="mb-3 rounded-xl border border-amber-600/60 bg-amber-900/40 p-3 text-sm leading-relaxed">
+    ⚠️ 這裡的修改只在伺服器醒著時有效。大約 15 分鐘沒人玩、伺服器休眠或更新後，會恢復成預設值，成績紀錄也會清空。想永久保留的題庫請按「匯出」把檔案傳給 Claude；成績請記得下載。
+  </div>
+  <div id="pw-warning" class="mb-3 hidden rounded-xl border border-rose-500/60 bg-rose-900/40 p-3 text-sm">
+    🔑 目前使用預設密碼 12345678，學生猜到就能進來。想換密碼請跟 Claude 說新密碼。
+  </div>
+
+  <nav class="card mb-4 grid grid-cols-3 gap-1 p-1" role="tablist">
+    <button class="tab btn" data-tab="settings" aria-selected="true">遊戲參數</button>
+    <button class="tab btn" data-tab="devices" aria-selected="false">題庫管理</button>
+    <button class="tab btn" data-tab="results" aria-selected="false">成績紀錄</button>
+  </nav>
+
+  <!-- 遊戲參數 -->
+  <section id="tab-settings" class="space-y-3">
+    <div id="settings-form" class="card grid gap-4 p-4 sm:grid-cols-2"></div>
+    <p class="text-sm text-amber-200/70">修改後下一局開始生效，進行中的遊戲不受影響。</p>
+    <div class="flex gap-2">
+      <button id="btn-save-settings" class="btn btn-gold flex-1">儲存參數</button>
+      <button id="btn-reset-settings" class="btn btn-ghost">恢復預設</button>
+    </div>
+  </section>
+
+  <!-- 題庫管理 -->
+  <section id="tab-devices" class="hidden space-y-3">
+    <div class="card space-y-3 p-4">
+      <p id="device-summary" class="font-bold"></p>
+      <div class="flex flex-wrap gap-2">
+        <input id="device-search" class="field flex-1" placeholder="搜尋機關名稱…">
+        <select id="device-filter" class="field w-auto">
+          <option value="all">全部</option>
+          <option value="on">已啟用</option>
+          <option value="off">已停用</option>
+          <option value="button">按鈕</option>
+          <option value="switch">開關</option>
+          <option value="slider">滑桿</option>
+        </select>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button id="btn-add-device" class="btn btn-gold">＋ 新增機關</button>
+        <button id="btn-all-on" class="btn btn-ghost text-sm">全部啟用</button>
+        <button id="btn-export" class="btn btn-ghost text-sm">匯出 JSON</button>
+        <label class="btn btn-ghost cursor-pointer text-sm">匯入 JSON<input id="input-import" type="file" accept=".json,application/json" class="hidden"></label>
+        <button id="btn-reset-devices" class="btn btn-red text-sm">恢復預設題庫</button>
+      </div>
+    </div>
+    <div id="device-list" class="space-y-3"></div>
+  </section>
+
+  <!-- 成績紀錄 -->
+  <section id="tab-results" class="hidden space-y-3">
+    <div class="flex flex-wrap gap-2">
+      <button id="btn-csv" class="btn btn-gold">下載成績（Excel 可開）</button>
+      <button id="btn-refresh" class="btn btn-ghost">重新整理</button>
+      <button id="btn-clear-results" class="btn btn-red">清除紀錄</button>
+    </div>
+    <div class="card overflow-x-auto p-2">
+      <table class="w-full text-left text-sm">
+        <thead class="text-amber-300">
+          <tr><th>時間</th><th>人數</th><th>結果</th><th>評價</th><th>完成</th><th>逾時</th><th>亂按</th><th>穩定度</th><th>玩家</th></tr>
+        </thead>
+        <tbody id="results-body"></tbody>
+      </table>
+      <p id="results-empty" class="p-4 text-center text-amber-200/70">還沒有成績，玩完一局就會出現。</p>
+    </div>
+  </section>
+</section>
+
+<!-- 儲存列（題庫有未儲存修改時出現） -->
+<div id="save-bar" class="fixed inset-x-0 bottom-0 z-20 hidden border-t-2 border-amber-700 bg-[#1a0f07]/95 p-3 backdrop-blur">
+  <div class="mx-auto flex max-w-3xl items-center gap-3">
+    <span class="flex-1 text-sm">題庫有尚未儲存的修改</span>
+    <button id="btn-discard" class="btn btn-ghost text-sm">放棄</button>
+    <button id="btn-save-devices" class="btn btn-gold">儲存題庫</button>
+  </div>
+</div>
+
+<div id="toast" class="pointer-events-none fixed left-1/2 top-4 z-50 -translate-x-1/2 whitespace-pre-line rounded-xl bg-black/85 px-4 py-2 text-sm opacity-0 shadow-lg transition-opacity"></div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const store = {
+    get() { try { return sessionStorage.getItem('mf-admin') || ''; } catch (e) { return ''; } },
+    set(v) { try { v ? sessionStorage.setItem('mf-admin', v) : sessionStorage.removeItem('mf-admin'); } catch (e) {} },
+  };
+
+  // 每種機關可選的操作：[action 文字, target]
+  const ACTIONS = {
+    button: [['啟動', 'press'], ['按下', 'press'], ['拍下', 'press']],
+    switch: [['開啟', 'on'], ['關閉', 'off']],
+    slider: [['推到頂端', 'max'], ['推到中間', 'mid'], ['拉到底部', 'min']],
+  };
+  const TYPE_LABEL = { button: '按鈕', switch: '開關', slider: '滑桿' };
+  const REASON = { timeup: '撐到下班', collapse: '工廠爆炸', notEnough: '人數不足' };
+
+  let token = store.get();
+  let state = null;
+  let draft = [];     // 題庫編輯中的副本
+  let dirty = false;
+
+  let toastTimer;
+  function toast(text) {
+    const t = $('toast');
+    t.textContent = text;
+    t.style.opacity = 1;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (t.style.opacity = 0), 2600);
+  }
+
+  async function api(method, url, body) {
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json', 'x-admin-token': token },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => ({ ok: false, error: '伺服器沒有回應' }));
+    if (res.status === 401 && url !== '/api/admin/login') { logout(); throw new Error(data.error); }
+    if (!data.ok) throw new Error(data.error || '發生錯誤');
+    return data;
+  }
+
+  // ---------------- 登入 ----------------
+  $('login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('login-error').textContent = '';
+    try {
+      const data = await api('POST', '/api/admin/login', { password: $('password').value });
+      token = data.token;
+      store.set(token);
+      $('password').value = '';
+      await load();
+    } catch (err) {
+      $('login-error').textContent = err.message;
+    }
+  });
+
+  function logout() {
+    token = '';
+    store.set('');
+    $('admin').classList.add('hidden');
+    $('save-bar').classList.add('hidden');
+    $('login').classList.remove('hidden');
+  }
+  $('btn-logout').addEventListener('click', logout);
+
+  async function load() {
+    const data = await api('GET', '/api/admin/state');
+    $('login').classList.add('hidden');
+    $('admin').classList.remove('hidden');
+    applyState(data, true);
+  }
+
+  function applyState(data, resetDraft) {
+    state = data;
+    $('pw-warning').classList.toggle('hidden', !data.usingDefaultPassword);
+    renderSettings();
+    if (resetDraft) { draft = data.devices.map((d) => ({ ...d })); setDirty(false); }
+    renderDevices();
+    renderResults();
+  }
+
+  // ---------------- 分頁 ----------------
+  document.querySelectorAll('.tab').forEach((btn) => btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-selected', String(b === btn)));
+    for (const name of ['settings', 'devices', 'results']) $('tab-' + name).classList.toggle('hidden', btn.dataset.tab !== name);
+  }));
+
+  // ---------------- 遊戲參數 ----------------
+  function renderSettings() {
+    const { settings, defaults, rules } = state;
+    $('settings-form').innerHTML = Object.entries(rules).map(([key, [label, min, max]]) => `
+      <label class="block">
+        <span class="mb-1 flex justify-between text-sm font-bold"><span>${esc(label)}</span><span class="font-normal text-amber-200/60">預設 ${defaults[key]}</span></span>
+        <input type="number" inputmode="decimal" class="field text-lg" data-key="${key}" min="${min}" max="${max}" step="${key === 'MIN_PLAYERS' ? 1 : 0.5}" value="${settings[key]}">
+        <span class="text-xs text-amber-200/50">可設定 ${min}–${max}</span>
+      </label>`).join('');
+  }
+
+  $('btn-save-settings').addEventListener('click', async () => {
+    const body = {};
+    $('settings-form').querySelectorAll('input').forEach((i) => (body[i.dataset.key] = i.value));
+    try {
+      applyState(await api('PUT', '/api/admin/settings', body), !dirty);
+      toast('✅ 參數已儲存，下一局生效');
+    } catch (err) { toast('❌ ' + err.message); }
+  });
+
+  $('btn-reset-settings').addEventListener('click', async () => {
+    if (!confirm('把遊戲參數恢復成預設值？')) return;
+    try {
+      applyState(await api('POST', '/api/admin/settings/reset'), !dirty);
+      toast('已恢復預設參數');
+    } catch (err) { toast('❌ ' + err.message); }
+  });
+
+  // ---------------- 題庫管理 ----------------
+  function setDirty(v) {
+    dirty = v;
+    $('save-bar').classList.toggle('hidden', !v);
+  }
+
+  function autoInstruction(d) {
+    if (!d.name) return '';
+    return d.type === 'slider' ? `把${d.name}${d.action}！` : `${d.action}${d.name}！`;
+  }
+
+  function renderDevices() {
+    const enabled = draft.filter((d) => d.enabled).length;
+    $('device-summary').textContent = `共 ${draft.length} 個機關，啟用 ${enabled} 個，最多可 ${Math.min(10, Math.floor(enabled / 4))} 人同時玩`;
+
+    const q = $('device-search').value.trim();
+    const f = $('device-filter').value;
+    const rows = draft
+      .map((d, i) => ({ d, i }))
+      .filter(({ d }) => (!q || d.name.includes(q)) &&
+        (f === 'all' || (f === 'on' && d.enabled) || (f === 'off' && !d.enabled) || f === d.type));
+
+    $('device-list').innerHTML = rows.map(({ d, i }) => {
+      const opts = ACTIONS[d.type].map(([a, t]) =>
+        `<option value="${esc(a)}|${t}" ${a === d.action && t === d.target ? 'selected' : ''}>${esc(a)}</option>`).join('');
+      return `
+      <div class="dev card space-y-2 p-3 ${d.enabled ? '' : 'off'}" data-i="${i}">
+        <div class="flex items-center gap-2">
+          <label class="flex items-center gap-1.5 text-sm font-bold">
+            <input type="checkbox" data-f="enabled" class="h-5 w-5 accent-amber-500" ${d.enabled ? 'checked' : ''}>啟用
+          </label>
+          <span class="flex-1 text-right text-xs text-amber-200/50">${esc(d.id)}</span>
+          <button data-act="del" class="btn btn-red px-3 py-1 text-xs">刪除</button>
+        </div>
+        <input class="field font-bold" data-f="name" value="${esc(d.name)}" placeholder="機關名稱（越拗口越好笑）">
+        <div class="grid grid-cols-2 gap-2">
+          <select class="field" data-f="type">
+            ${Object.entries(TYPE_LABEL).map(([v, l]) => `<option value="${v}" ${v === d.type ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+          <select class="field" data-f="action">${opts}</select>
+        </div>
+        <div class="flex gap-2">
+          <input class="field flex-1 text-sm" data-f="instruction" value="${esc(d.instruction)}" placeholder="指令文字">
+          <button data-act="auto" class="btn btn-ghost px-3 text-xs">自動產生</button>
+        </div>
+      </div>`;
+    }).join('') || '<p class="card p-4 text-center text-amber-200/70">沒有符合的機關</p>';
+  }
+
+  $('device-search').addEventListener('input', renderDevices);
+  $('device-filter').addEventListener('change', renderDevices);
+
+  $('device-list').addEventListener('input', (e) => {
+    const card = e.target.closest('.dev');
+    if (!card) return;
+    const d = draft[card.dataset.i];
+    const f = e.target.dataset.f;
+    if (f === 'name' || f === 'instruction') {
+      const oldAuto = autoInstruction(d);
+      d[f] = e.target.value;
+      // 指令還是自動產生的內容時，跟著名稱一起更新
+      if (f === 'name' && (d.instruction === oldAuto || !d.instruction)) {
+        d.instruction = autoInstruction(d);
+        card.querySelector('[data-f="instruction"]').value = d.instruction;
+      }
+      setDirty(true);
+    }
+  });
+
+  $('device-list').addEventListener('change', (e) => {
+    const card = e.target.closest('.dev');
+    if (!card) return;
+    const d = draft[card.dataset.i];
+    const f = e.target.dataset.f;
+    const wasAuto = d.instruction === autoInstruction(d);
+    if (f === 'enabled') d.enabled = e.target.checked;
+    else if (f === 'type') { d.type = e.target.value; [d.action, d.target] = ACTIONS[d.type][0]; }
+    else if (f === 'action') { [d.action, d.target] = e.target.value.split('|'); }
+    else return;
+    if (f !== 'enabled' && wasAuto) d.instruction = autoInstruction(d);
+    setDirty(true);
+    renderDevices();
+  });
+
+  $('device-list').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    const i = Number(btn.closest('.dev').dataset.i);
+    if (btn.dataset.act === 'del') {
+      if (!confirm(`刪除「${draft[i].name || '未命名'}」？`)) return;
+      draft.splice(i, 1);
+    } else if (btn.dataset.act === 'auto') {
+      draft[i].instruction = autoInstruction(draft[i]);
+    }
+    setDirty(true);
+    renderDevices();
+  });
+
+  $('btn-add-device').addEventListener('click', () => {
+    draft.unshift({ id: 'custom_' + Date.now().toString(36), name: '', type: 'button', action: '啟動', target: 'press', instruction: '', enabled: true });
+    $('device-search').value = '';
+    $('device-filter').value = 'all';
+    setDirty(true);
+    renderDevices();
+    const first = $('device-list').querySelector('[data-f="name"]');
+    if (first) first.focus();
+  });
+
+  $('btn-all-on').addEventListener('click', () => {
+    draft.forEach((d) => (d.enabled = true));
+    setDirty(true);
+    renderDevices();
+  });
+
+  $('btn-save-devices').addEventListener('click', async () => {
+    const empty = draft.find((d) => !d.name.trim());
+    if (empty) return toast('有機關還沒取名字');
+    try {
+      applyState(await api('PUT', '/api/admin/devices', { devices: draft }), true);
+      toast('✅ 題庫已儲存，下一局生效');
+    } catch (err) { toast('❌ ' + err.message); }
+  });
+
+  $('btn-discard').addEventListener('click', () => {
+    draft = state.devices.map((d) => ({ ...d }));
+    setDirty(false);
+    renderDevices();
+  });
+
+  $('btn-reset-devices').addEventListener('click', async () => {
+    if (!confirm('把題庫恢復成原本的 50 個機關？你的修改會消失。')) return;
+    try {
+      applyState(await api('POST', '/api/admin/devices/reset'), true);
+      toast('已恢復預設題庫');
+    } catch (err) { toast('❌ ' + err.message); }
+  });
+
+  function download(filename, text, type) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type }));
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+
+  $('btn-export').addEventListener('click', () => {
+    const data = draft.map(({ id, name, type, action, target, instruction, enabled }) =>
+      ({ id, name, type, action, target, instruction, ...(enabled ? {} : { enabled: false }) }));
+    download('devices.json', JSON.stringify(data, null, 2), 'application/json');
+  });
+
+  $('input-import').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const list = JSON.parse(await file.text());
+      if (!Array.isArray(list)) throw new Error();
+      draft = list.map((d) => ({ enabled: true, instruction: '', action: '', ...d }));
+      setDirty(true);
+      renderDevices();
+      toast(`已讀入 ${draft.length} 個機關，確認後按「儲存題庫」`);
+    } catch (err) { toast('❌ 這不是正確的題庫檔案'); }
+  });
+
+  // ---------------- 成績紀錄 ----------------
+  const fmtTime = (iso) => new Date(iso).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+
+  function renderResults() {
+    const list = state.results;
+    $('results-empty').classList.toggle('hidden', list.length > 0);
+    $('results-body').innerHTML = list.map((r) => `
+      <tr class="border-t border-amber-900/60">
+        <td>${esc(fmtTime(r.time))}</td><td>${r.playerCount}</td><td>${esc(REASON[r.reason] || r.reason)}</td>
+        <td>${esc(r.rank)}</td><td class="text-emerald-300">${r.completed}</td><td class="text-amber-300">${r.failed}</td>
+        <td class="text-rose-300">${r.wrong}</td><td>${r.stability}%</td><td class="text-xs">${esc(r.names.join('、'))}</td>
+      </tr>`).join('');
+  }
+
+  $('btn-refresh').addEventListener('click', async () => {
+    try { applyState(await api('GET', '/api/admin/state'), !dirty); toast('已更新'); } catch (err) { toast('❌ ' + err.message); }
+  });
+
+  $('btn-csv').addEventListener('click', () => {
+    if (!state.results.length) return toast('還沒有成績可以下載');
+    const head = ['時間', '房間', '人數', '結果', '評價', '完成指令', '逾時', '亂按', '最終穩定度', '撐了幾秒', '玩家'];
+    const cell = (v) => `"${String(v).replace(/"/g, '""')}"`;
+    const rows = state.results.map((r) => [fmtTime(r.time), r.code, r.playerCount, REASON[r.reason] || r.reason, r.rank,
+      r.completed, r.failed, r.wrong, r.stability + '%', r.survivedSeconds, r.names.join('、')].map(cell).join(','));
+    const date = new Date().toISOString().slice(0, 10);
+    download(`魔法工廠成績_${date}.csv`, '﻿' + [head.map(cell).join(','), ...rows].join('\r\n'), 'text/csv');
+  });
+
+  $('btn-clear-results').addEventListener('click', async () => {
+    if (!confirm('清除所有成績紀錄？清除前建議先下載。')) return;
+    try { applyState(await api('DELETE', '/api/admin/results'), !dirty); toast('已清除'); } catch (err) { toast('❌ ' + err.message); }
+  });
+
+  window.addEventListener('beforeunload', (e) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+  // 已登入過（同一個分頁）就直接進入
+  if (token) load().catch(() => logout());
+})();
+</script>
+</body>
+</html>
